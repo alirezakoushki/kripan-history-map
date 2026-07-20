@@ -1,0 +1,48 @@
+{
+  "dataset": {
+    "title": "Kripan verified historical dataset",
+    "version": "1.0.0",
+    "provenance": "Describe transcription method and repositories here.",
+    "updatedAt": "2026-07-21"
+  },
+  "houses": [
+    {
+      "id": "way/REPLACE_WITH_OSM_WAY_ID",
+      "latitude": 42.5918,
+      "longitude": -2.5155,
+      "name": "Verified house name",
+      "yearBuilt": 1724,
+      "yearDemolished": null,
+      "streetName": "Verified street name",
+      "sourceRef": "Municipal archive or cadastral reference",
+      "yearConfidence": "verified"
+    }
+  ],
+  "residents": [
+    {
+      "id": "person-0001",
+      "name": "Transcribed full name",
+      "birthYear": 1760,
+      "deathYear": 1821,
+      "houseId": "way/REPLACE_WITH_OSM_WAY_ID",
+      "yearMovedIn": 1783,
+      "yearMovedOut": null,
+      "parentIds": ["person-0002", "person-0003"],
+      "spouseId": "person-0004",
+      "currentLocation": {
+        "status": "deceased",
+        "destination": null
+      },
+      "sources": [
+        {
+          "type": "baptism",
+          "repository": "Historical Diocesan Archive of Vitoria-Gasteiz",
+          "parish": "Kripan",
+          "book": "Book identifier",
+          "folio": "Folio/page",
+          "recordDate": "1760-01-01"
+        }
+      ]
+    }
+  ]
+}

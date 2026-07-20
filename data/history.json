@@ -1,0 +1,10 @@
+{
+  "dataset": {
+    "title": "Kripan historical houses and residents",
+    "version": "0.1.0",
+    "provenance": "No archival transcriptions are bundled. Import verified records using the included schema.",
+    "updatedAt": null
+  },
+  "houses": [],
+  "residents": []
+}
