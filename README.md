@@ -9,7 +9,8 @@ A static, deployable CesiumJS web app centered on the real village of Kripan, Á
 - Real OpenStreetMap building footprints loaded through Overpass at runtime.
 - 3D polygon extrusion using OSM building levels/height when available.
 - Timeline filtering by `yearBuilt` and `yearDemolished`.
-- Honest treatment of undated buildings: they remain marked as undated rather than receiving fabricated years.
+- Animated backward playback from 2024 to 1500. Buildings shrink and fade out when the selected year predates their appearance.
+- Optional deterministic simulation for undated OSM footprints. It assigns pseudo-random visual appearance years, can generate a new pattern, and is clearly separated from evidence-based dates.
 - Sepia/desaturated early-century rendering that transitions to modern full-color imagery.
 - House details, residents at the selected year, and a family relationship view.
 - Browser-based curator overrides for house names, streets, years and source references.
@@ -39,6 +40,12 @@ The folder is static and can be deployed directly to GitHub Pages, Netlify, Clou
 4. Paste the token and select **Save & reload**.
 
 Without a token, the app still uses a real OpenStreetMap street layer, but the globe uses an ellipsoid rather than Cesium World Terrain and aerial imagery is disabled.
+
+## Historical animation mode
+
+Press **Play backwards** in the timeline to animate the village from 2024 back to 1500. Evidence-dated houses disappear according to their recorded `yearBuilt`. When **Animate estimated history** is enabled, undated current footprints receive stable pseudo-random simulation years and disappear in a repeatable pattern.
+
+Use **Data & map → Generate a new pattern** to create another simulation. The generated years are stored only as a browser simulation seed and are deliberately excluded from exported archival datasets. They are visual placeholders, not claims about Kripan's actual construction history. Turning off the simulation restores the evidence-only behavior.
 
 ## Historical data import
 

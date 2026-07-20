@@ -48,8 +48,12 @@ h1,h2,h3,p { margin: 0; }
 #periodLabel { color: var(--muted); font-size: 13px; }
 .timeline-stats { display: flex; flex-direction: column; align-items: flex-end; gap: 8px; color: var(--muted); font-size: 12px; }
 .timeline-stats strong { color: var(--ink); }
+.timeline-control-row { display: flex; align-items: center; gap: 10px; }
+.timeline-play-button { padding: 8px 12px; white-space: nowrap; }
+.timeline-play-button.is-active { background: rgba(216,181,107,.28); border-color: rgba(216,181,107,.62); }
 .toggle-row { display: flex; align-items: center; gap: 7px; cursor: pointer; }
 .toggle-row input { accent-color: var(--accent); }
+.toggle-row.is-disabled { opacity: .42; cursor: not-allowed; }
 .slider-wrap { display: grid; grid-template-columns: 42px 1fr 42px; align-items: center; gap: 10px; color: var(--muted); font-size: 11px; margin-top: 8px; }
 .slider-wrap > span:last-child { text-align: right; }
 input[type="range"] { width: 100%; accent-color: var(--accent); cursor: pointer; }
@@ -111,8 +115,10 @@ button.resident-card:hover, button.resident-card.is-active { border-color: rgba(
   .status-card { top: 88px; }
   .timeline-card { padding: 13px 14px 12px; }
   .timeline-header { align-items: center; }
-  .timeline-stats > span { display:none; }
-  .toggle-row { max-width: 145px; text-align: right; font-size: 10px; }
+  .timeline-control-row > span { display:none; }
+  .timeline-play-button { padding: 8px 10px; font-size: 11px; }
+  .toggle-row { max-width: 155px; text-align: right; font-size: 10px; }
+  .timeline-stats { gap: 5px; }
   #yearOutput { font-size: 30px; }
   .century-marks { display:none; }
   .details-panel { position: absolute; top: auto; left: 8px; right: 8px; bottom: 8px; width: auto; max-height: 74vh; border-radius: 20px; transform: translateY(calc(100% + 30px)); }

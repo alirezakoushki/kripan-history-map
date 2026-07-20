@@ -88,7 +88,11 @@
           <div class="year-readout"><output id="yearOutput" for="yearSlider">2024</output><span id="periodLabel">Present day</span></div>
         </div>
         <div class="timeline-stats">
-          <span><strong id="visibleHouseCount">0</strong> visible</span>
+          <div class="timeline-control-row">
+            <button id="playTimelineButton" class="button timeline-play-button" type="button">▶ Play backwards</button>
+            <span><strong id="visibleHouseCount">0</strong> visible</span>
+          </div>
+          <label class="toggle-row" title="Assigns stable simulated appearance years to undated OSM footprints. This is not archival evidence."><input id="simulationToggle" type="checkbox" checked /><span>Animate estimated history</span></label>
           <label class="toggle-row"><input id="showUndatedToggle" type="checkbox" checked /><span>Show undated current buildings</span></label>
         </div>
       </div>
@@ -122,6 +126,15 @@
           <div class="segmented" role="group" aria-label="Base imagery">
             <button id="aerialButton" type="button" class="segment is-active">Aerial + labels</button>
             <button id="streetButton" type="button" class="segment">Street map</button>
+          </div>
+        </section>
+
+        <section class="dialog-section">
+          <h3>Historical animation simulation</h3>
+          <p>Undated OpenStreetMap footprints can be assigned stable pseudo-random appearance years so buildings shrink and fade as the map travels backward. These years are visual placeholders only and are never treated as archival evidence.</p>
+          <div class="button-row">
+            <button id="rerollSimulationButton" class="button" type="button">Generate a new pattern</button>
+            <span id="simulationSeedLabel" class="muted-label"></span>
           </div>
         </section>
 

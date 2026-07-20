@@ -3,7 +3,9 @@ const STORAGE = {
   token: "kripan.cesiumToken",
   dataset: "kripan.historyDataset",
   houseOverrides: "kripan.houseOverrides",
-  imagery: "kripan.imagery"
+  imagery: "kripan.imagery",
+  simulation: "kripan.simulationMode",
+  simulationSeed: "kripan.simulationSeed"
 };
 
 const state = {
@@ -21,7 +23,16 @@ const state = {
   orbitHeading: 0,
   importedDataset: null,
   houseOverrides: {},
-  imageryMode: localStorage.getItem(STORAGE.imagery) || "aerial"
+  imageryMode: localStorage.getItem(STORAGE.imagery) || "aerial",
+  simulateUndated: localStorage.getItem(STORAGE.simulation) !== "false",
+  simulationSeed: Number(localStorage.getItem(STORAGE.simulationSeed)) || 4215918,
+  timelinePlaying: false,
+  timelineFrame: null,
+  timelineStartTime: 0,
+  timelineStartYear: 2024,
+  timelineDurationMs: 18000,
+  houseAnimationFrame: null,
+  houseAnimationLastTime: 0
 };
 
 const el = Object.fromEntries([
@@ -30,7 +41,8 @@ const el = Object.fromEntries([
   "residentCount","currentResidents","familyTree","treeFocusLabel","closePanelButton","settingsButton","settingsDialog",
   "tokenInput","saveTokenButton","clearTokenButton","aerialButton","streetButton","importFileInput","importButton",
   "exportButton","importMessage","resetViewButton","orbitButton","historicalWash","houseForm","editHouseName",
-  "editStreetName","editYearBuilt","editYearDemolished","editSourceRef","toast"
+  "editStreetName","editYearBuilt","editYearDemolished","editSourceRef","toast","simulationToggle",
+  "playTimelineButton","rerollSimulationButton","simulationSeedLabel"
 ].map(id => [id, document.getElementById(id)]));
 
 boot().catch(error => {
@@ -52,8 +64,9 @@ async function boot() {
 
 function bindUi() {
   el.yearSlider.addEventListener("input", () => {
+    stopTimelinePlayback();
     state.year = Number(el.yearSlider.value);
-    if (state.year < 2024 && !el.showUndatedToggle.dataset.touched) {
+    if (!state.simulateUndated && state.year < 2024 && !el.showUndatedToggle.dataset.touched) {
       state.showUndated = false;
       el.showUndatedToggle.checked = false;
     }
@@ -64,6 +77,14 @@ function bindUi() {
     state.showUndated = el.showUndatedToggle.checked;
     updateTimeline();
   });
+  el.simulationToggle.addEventListener("change", () => {
+    state.simulateUndated = el.simulationToggle.checked;
+    localStorage.setItem(STORAGE.simulation, String(state.simulateUndated));
+    updateSimulationUi();
+    updateTimeline();
+  });
+  el.playTimelineButton.addEventListener("click", toggleTimelinePlayback);
+  el.rerollSimulationButton.addEventListener("click", rerollSimulation);
   el.closePanelButton.addEventListener("click", closeDetails);
   el.settingsButton.addEventListener("click", openSettings);
   el.resetViewButton.addEventListener("click", () => resetView(true));
@@ -78,6 +99,8 @@ function bindUi() {
   document.addEventListener("keydown", event => {
     if (event.key === "Escape") closeDetails();
   });
+  el.simulationToggle.checked = state.simulateUndated;
+  updateSimulationUi();
 }
 
 async function createViewer() {
@@ -163,14 +186,16 @@ async function loadBuildings() {
   state.houses = elements
     .map(overpassWayToHouse)
     .filter(Boolean)
-    .map(osmHouse => mergeHouseData(osmHouse, importedHouses.get(osmHouse.id), state.houseOverrides[osmHouse.id]));
+    .map(osmHouse => mergeHouseData(osmHouse, importedHouses.get(osmHouse.id), state.houseOverrides[osmHouse.id]))
+    .map(house => ({ ...house, simulatedYearBuilt: simulatedYearForHouse(house.id, state.simulationSeed) }));
 
   for (const house of state.houses) addHouseEntity(house);
 
   const dated = state.houses.filter(h => Number.isFinite(h.yearBuilt)).length;
+  const simulated = state.houses.length - dated;
   setStatus(
     `${state.houses.length} live OSM buildings loaded`,
-    `${dated} dated · ${state.houses.length - dated} require historical attribution`,
+    `${dated} evidence-dated · ${simulated} available for visual simulation`,
     "ok"
   );
 }
@@ -244,7 +269,15 @@ function mergeHouseData(osm, imported, override) {
 function addHouseEntity(house) {
   const flat = house.coordinates.flatMap(([lon, lat]) => [lon, lat]);
   const height = house.heightMeters || (house.levels ? house.levels * 3.1 : 7.5);
-  const material = house.yearBuilt ? colorForYear(house.yearBuilt, .82) : Cesium.Color.fromCssColorString("#a9a49a").withAlpha(.38);
+  const initialColor = house.yearBuilt ? colorForYear(house.yearBuilt, 1) : Cesium.Color.fromCssColorString("#a9a49a");
+  const visual = {
+    baseHeight: height,
+    scale: 1,
+    targetScale: 1,
+    alpha: house.yearBuilt ? .84 : .40,
+    targetAlpha: house.yearBuilt ? .84 : .40,
+    color: initialColor
+  };
   const entity = state.viewer.entities.add({
     id: `kripan-${house.id}`,
     name: house.name || house.streetName || house.id,
@@ -252,17 +285,24 @@ function addHouseEntity(house) {
       hierarchy: Cesium.Cartesian3.fromDegreesArray(flat),
       height: 0,
       heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
-      extrudedHeight: height,
+      extrudedHeight: new Cesium.CallbackProperty(() => visual.baseHeight * Math.max(0, visual.scale), false),
       extrudedHeightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
-      material,
+      material: new Cesium.ColorMaterialProperty(new Cesium.CallbackProperty(
+        () => visual.color.withAlpha(Math.max(0, visual.alpha)),
+        false
+      )),
       outline: true,
-      outlineColor: Cesium.Color.fromCssColorString("#e8ddc8").withAlpha(.55),
+      outlineColor: new Cesium.CallbackProperty(
+        () => Cesium.Color.fromCssColorString("#e8ddc8").withAlpha(Math.max(0, visual.alpha * .66)),
+        false
+      ),
       closeTop: true,
       closeBottom: true
     },
     show: true
   });
   entity.kripanHouseId = house.id;
+  entity.kripanVisual = visual;
   state.entities.set(house.id, entity);
 }
 
@@ -274,18 +314,73 @@ function updateTimeline() {
   let visible = 0;
   for (const house of state.houses) {
     const entity = state.entities.get(house.id);
-    const datedVisible = Number.isFinite(house.yearBuilt) && house.yearBuilt <= state.year && (!house.yearDemolished || state.year < house.yearDemolished);
-    const undatedVisible = !Number.isFinite(house.yearBuilt) && state.showUndated;
+    const hasVerifiedYear = Number.isFinite(house.yearBuilt);
+    const effectiveYear = hasVerifiedYear ? house.yearBuilt : (state.simulateUndated ? house.simulatedYearBuilt : null);
+    const datedVisible = Number.isFinite(effectiveYear) && effectiveYear <= state.year && (!house.yearDemolished || state.year < house.yearDemolished);
+    const undatedVisible = !hasVerifiedYear && !state.simulateUndated && state.showUndated;
     const show = datedVisible || undatedVisible;
     if (entity) {
-      entity.show = show;
-      entity.polygon.material = datedVisible ? colorForYear(house.yearBuilt, .84) : Cesium.Color.fromCssColorString("#a9a49a").withAlpha(state.year === 2024 ? .40 : .22);
+      const baseColor = hasVerifiedYear
+        ? colorForYear(house.yearBuilt, 1)
+        : state.simulateUndated
+          ? simulationColorForYear(house.simulatedYearBuilt)
+          : Cesium.Color.fromCssColorString("#a9a49a");
+      const alpha = hasVerifiedYear ? .84 : (state.simulateUndated ? .64 : (state.year === 2024 ? .40 : .22));
+      setHouseVisualTarget(entity, show, baseColor, alpha);
     }
     if (show) visible++;
   }
   el.visibleHouseCount.textContent = String(visible);
   applyHistoricalStyle();
   if (state.selectedHouse) renderHousePanel();
+}
+
+function setHouseVisualTarget(entity, show, color, alpha) {
+  const visual = entity.kripanVisual;
+  if (!visual) {
+    entity.show = show;
+    return;
+  }
+  visual.color = color;
+  visual.targetScale = show ? 1 : 0;
+  visual.targetAlpha = show ? alpha : 0;
+  if (show) entity.show = true;
+  ensureHouseAnimation();
+}
+
+function ensureHouseAnimation() {
+  if (state.houseAnimationFrame) return;
+  state.houseAnimationLastTime = performance.now();
+  state.houseAnimationFrame = requestAnimationFrame(animateHouseTransitions);
+}
+
+function animateHouseTransitions(now) {
+  const dt = Math.min(.05, Math.max(.001, (now - state.houseAnimationLastTime) / 1000));
+  state.houseAnimationLastTime = now;
+  const blend = 1 - Math.exp(-dt * 10);
+  let active = false;
+
+  for (const entity of state.entities.values()) {
+    const visual = entity.kripanVisual;
+    if (!visual) continue;
+    visual.scale += (visual.targetScale - visual.scale) * blend;
+    visual.alpha += (visual.targetAlpha - visual.alpha) * blend;
+    const scaleGap = Math.abs(visual.targetScale - visual.scale);
+    const alphaGap = Math.abs(visual.targetAlpha - visual.alpha);
+    if (scaleGap > .004 || alphaGap > .004) active = true;
+    if (visual.targetScale === 0 && visual.scale < .012 && visual.alpha < .012) {
+      visual.scale = 0;
+      visual.alpha = 0;
+      entity.show = false;
+    }
+  }
+
+  state.viewer?.scene.requestRender();
+  if (active) {
+    state.houseAnimationFrame = requestAnimationFrame(animateHouseTransitions);
+  } else {
+    state.houseAnimationFrame = null;
+  }
 }
 
 function applyHistoricalStyle() {
@@ -322,7 +417,11 @@ function renderHousePanel() {
   const house = state.selectedHouse;
   if (!house) return;
   const address = [house.streetName, house.houseNumber].filter(Boolean).join(" ");
-  el.houseEyebrow.textContent = Number.isFinite(house.yearBuilt) ? `Built ${house.yearBuilt}` : "Construction date unverified";
+  el.houseEyebrow.textContent = Number.isFinite(house.yearBuilt)
+    ? `Built ${house.yearBuilt}`
+    : state.simulateUndated
+      ? `Simulated appearance ${house.simulatedYearBuilt}`
+      : "Construction date unverified";
   el.houseTitle.textContent = house.name || address || `OSM ${house.id}`;
   el.houseSubtitle.textContent = [address, `${house.latitude.toFixed(5)}, ${house.longitude.toFixed(5)}`].filter(Boolean).join(" · ");
   el.houseQuality.textContent = houseQualityText(house);
@@ -430,14 +529,14 @@ function saveHouseOverride(event) {
   state.houseOverrides[id] = override;
   localStorage.setItem(STORAGE.houseOverrides, JSON.stringify(state.houseOverrides));
   Object.assign(state.selectedHouse, override);
-  const entity = state.entities.get(id);
-  if (entity) entity.polygon.material = override.yearBuilt ? colorForYear(override.yearBuilt, .84) : Cesium.Color.fromCssColorString("#a9a49a").withAlpha(.38);
+  state.selectedHouse.simulatedYearBuilt = simulatedYearForHouse(id, state.simulationSeed);
   updateTimeline();
   showToast("House record saved in this browser.");
 }
 
 function openSettings() {
   el.tokenInput.value = localStorage.getItem(STORAGE.token) || "";
+  updateSimulationUi();
   el.settingsDialog.showModal();
 }
 
@@ -474,7 +573,7 @@ async function importDataset() {
 function exportDataset() {
   const mergedHouses = state.houses
     .filter(h => h.yearBuilt || h.name || h.streetName || h.sourceRef)
-    .map(({coordinates, levels, heightMeters, buildingType, houseNumber, ...house}) => house);
+    .map(({coordinates, levels, heightMeters, buildingType, houseNumber, simulatedYearBuilt, ...house}) => house);
   const payload = {
     dataset: {
       title: state.importedDataset?.dataset?.title || "Kripan historical dataset",
@@ -520,6 +619,72 @@ function normalizeResidents(records) {
 function normalizeLocation(location) {
   if (typeof location === "string") return { status: location, destination: null };
   return { status: location?.status || "village", destination: location?.destination || null };
+}
+
+function updateSimulationUi() {
+  if (!el.simulationToggle) return;
+  el.simulationToggle.checked = state.simulateUndated;
+  el.showUndatedToggle.disabled = state.simulateUndated;
+  el.showUndatedToggle.closest("label")?.classList.toggle("is-disabled", state.simulateUndated);
+  if (el.simulationSeedLabel) el.simulationSeedLabel.textContent = `Simulation seed: ${state.simulationSeed}`;
+}
+
+function rerollSimulation() {
+  state.simulationSeed = Math.floor(Date.now() % 2147483647);
+  localStorage.setItem(STORAGE.simulationSeed, String(state.simulationSeed));
+  for (const house of state.houses) {
+    house.simulatedYearBuilt = simulatedYearForHouse(house.id, state.simulationSeed);
+  }
+  state.simulateUndated = true;
+  localStorage.setItem(STORAGE.simulation, "true");
+  updateSimulationUi();
+  updateTimeline();
+  showToast("A new deterministic visual simulation was generated.");
+}
+
+function toggleTimelinePlayback() {
+  if (state.timelinePlaying) {
+    stopTimelinePlayback();
+    return;
+  }
+  if (state.year <= 1500) {
+    el.yearSlider.value = "2024";
+    state.year = 2024;
+    updateTimeline();
+  }
+  state.timelinePlaying = true;
+  state.timelineStartYear = state.year;
+  state.timelineStartTime = performance.now();
+  state.timelineDurationMs = Math.max(2200, 18000 * ((state.timelineStartYear - 1500) / 524));
+  el.playTimelineButton.textContent = "❚❚ Pause";
+  el.playTimelineButton.classList.add("is-active");
+  state.timelineFrame = requestAnimationFrame(stepTimelinePlayback);
+}
+
+function stepTimelinePlayback(now) {
+  if (!state.timelinePlaying) return;
+  const progress = Math.min(1, (now - state.timelineStartTime) / state.timelineDurationMs);
+  const nextYear = Math.round(state.timelineStartYear - (state.timelineStartYear - 1500) * progress);
+  if (Number(el.yearSlider.value) !== nextYear) {
+    el.yearSlider.value = String(nextYear);
+    updateTimeline();
+  }
+  if (progress < 1) {
+    state.timelineFrame = requestAnimationFrame(stepTimelinePlayback);
+  } else {
+    stopTimelinePlayback();
+    showToast("Historical playback reached 1500.");
+  }
+}
+
+function stopTimelinePlayback() {
+  state.timelinePlaying = false;
+  if (state.timelineFrame) cancelAnimationFrame(state.timelineFrame);
+  state.timelineFrame = null;
+  if (el.playTimelineButton) {
+    el.playTimelineButton.textContent = "▶ Play backwards";
+    el.playTimelineButton.classList.remove("is-active");
+  }
 }
 
 function resetView(animated = true) {
@@ -572,6 +737,7 @@ function houseQualityText(house) {
   if (house.yearConfidence === "verified") return `Verified construction year. Source: ${house.sourceRef || "source retained in imported record"}.`;
   if (house.yearConfidence === "local-curator") return `Locally curated construction year. Source: ${house.sourceRef || "no citation entered yet"}.`;
   if (house.yearConfidence === "osm-tagged") return `Construction year comes from an OpenStreetMap start_date tag. Verify it against a primary source before publication.`;
+  if (state.simulateUndated) return `This is a real OpenStreetMap footprint, but ${house.simulatedYearBuilt} is only a deterministic visual-simulation year. It is not historical evidence and changes when a new simulation is generated.`;
   return "This is a real OpenStreetMap footprint, but its construction year is unknown. It is shown as an undated current structure and is not assigned an invented historical date.";
 }
 
@@ -591,6 +757,28 @@ function colorForYear(year, alpha = 1) {
   const old = [151, 104, 55], modern = [211, 190, 145];
   const rgb = old.map((v, i) => Math.round(v + (modern[i] - v) * t));
   return new Cesium.Color(rgb[0]/255, rgb[1]/255, rgb[2]/255, alpha);
+}
+
+function simulationColorForYear(year) {
+  const color = colorForYear(year, 1);
+  return Cesium.Color.lerp(color, Cesium.Color.fromCssColorString("#8ba6a0"), .28, new Cesium.Color());
+}
+
+function simulatedYearForHouse(id, seed) {
+  const hash = hashString(`${seed}:${id}`);
+  const unit = (hash + .5) / 4294967296;
+  const recentWeighted = Math.pow(unit, .42);
+  const year = 1500 + recentWeighted * 524;
+  return Math.max(1500, Math.min(2024, Math.round(year / 5) * 5));
+}
+
+function hashString(value) {
+  let hash = 2166136261;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 16777619);
+  }
+  return hash >>> 0;
 }
 
 function lifeLabel(person) {
