@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#171713" />
+  <title>Kripan — Houses & Families Through Time</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cesium@1.127.0/Build/Cesium/Widgets/widgets.css" />
+  <link rel="stylesheet" href="./styles.css" />
+</head>
+<body>
+  <main id="app">
+    <div id="cesiumContainer" aria-label="Interactive 3D map of Kripan"></div>
+    <div id="historicalWash" aria-hidden="true"></div>
+
+    <header class="topbar glass">
+      <div class="brand">
+        <span class="brand-mark" aria-hidden="true">K</span>
+        <div>
+          <h1>Kripan</h1>
+          <p>Houses & families through time</p>
+        </div>
+      </div>
+      <div class="topbar-actions">
+        <button id="resetViewButton" class="icon-button" type="button" title="Reset camera" aria-label="Reset camera">⌂</button>
+        <button id="orbitButton" class="icon-button" type="button" title="Orbit village" aria-label="Orbit village">↻</button>
+        <button id="settingsButton" class="button button-secondary" type="button">Data & map</button>
+      </div>
+    </header>
+
+    <section class="status-card glass" aria-live="polite">
+      <span id="loadingDot" class="status-dot is-loading"></span>
+      <div>
+        <strong id="statusTitle">Loading Kripan building footprints…</strong>
+        <span id="statusDetail">Querying OpenStreetMap through Overpass</span>
+      </div>
+    </section>
+
+    <aside id="detailsPanel" class="details-panel glass" aria-label="House details" aria-hidden="true">
+      <div class="panel-handle" aria-hidden="true"></div>
+      <div class="panel-header">
+        <div>
+          <span id="houseEyebrow" class="eyebrow">House</span>
+          <h2 id="houseTitle">Select a building</h2>
+          <p id="houseSubtitle"></p>
+        </div>
+        <button id="closePanelButton" class="icon-button" type="button" aria-label="Close details">×</button>
+      </div>
+      <div id="houseQuality" class="quality-note"></div>
+
+      <section class="panel-section">
+        <div class="section-title-row">
+          <h3>Residents in <span id="residentsYear">2024</span></h3>
+          <span id="residentCount" class="count-pill">0</span>
+        </div>
+        <div id="currentResidents" class="resident-list empty-state">No resident records imported for this house.</div>
+      </section>
+
+      <section class="panel-section">
+        <div class="section-title-row">
+          <h3>Family tree</h3>
+          <span id="treeFocusLabel" class="muted-label">Choose a resident</span>
+        </div>
+        <div id="familyTree" class="family-tree empty-state">The tree appears after a resident record is selected.</div>
+      </section>
+
+      <section class="panel-section curator-section">
+        <details>
+          <summary>Curator record</summary>
+          <form id="houseForm" class="record-form">
+            <label>House name<input id="editHouseName" type="text" autocomplete="off" /></label>
+            <label>Street<input id="editStreetName" type="text" autocomplete="off" /></label>
+            <div class="form-grid">
+              <label>Year built<input id="editYearBuilt" type="number" min="1200" max="2024" /></label>
+              <label>Year demolished<input id="editYearDemolished" type="number" min="1200" max="2024" /></label>
+            </div>
+            <label>Source / archival reference<input id="editSourceRef" type="text" autocomplete="off" placeholder="Archive, book, folio, cadastral reference…" /></label>
+            <button class="button" type="submit">Save local override</button>
+          </form>
+        </details>
+      </section>
+    </aside>
+
+    <section class="timeline-card glass" aria-label="Historical timeline">
+      <div class="timeline-header">
+        <div>
+          <span class="eyebrow">Village year</span>
+          <div class="year-readout"><output id="yearOutput" for="yearSlider">2024</output><span id="periodLabel">Present day</span></div>
+        </div>
+        <div class="timeline-stats">
+          <span><strong id="visibleHouseCount">0</strong> visible</span>
+          <label class="toggle-row"><input id="showUndatedToggle" type="checkbox" checked /><span>Show undated current buildings</span></label>
+        </div>
+      </div>
+      <div class="slider-wrap">
+        <span>1500</span>
+        <input id="yearSlider" type="range" min="1500" max="2024" step="1" value="2024" aria-label="Select historical year" />
+        <span>2024</span>
+      </div>
+      <div class="century-marks" aria-hidden="true"><span>1500</span><span>1600</span><span>1700</span><span>1800</span><span>1900</span><span>2000</span></div>
+    </section>
+
+    <dialog id="settingsDialog" class="settings-dialog">
+      <form method="dialog" class="dialog-card">
+        <div class="panel-header">
+          <div><span class="eyebrow">Configuration</span><h2>Data & map settings</h2></div>
+          <button class="icon-button" value="cancel" aria-label="Close settings">×</button>
+        </div>
+
+        <section class="dialog-section">
+          <h3>Cesium ion token</h3>
+          <p>Required for Cesium World Terrain and Cesium World Imagery. Without it, the app uses a real OpenStreetMap street layer over an ellipsoid.</p>
+          <label class="full-label">Token<input id="tokenInput" type="password" autocomplete="off" placeholder="Paste a Cesium ion access token" /></label>
+          <div class="button-row">
+            <button id="saveTokenButton" class="button" type="button">Save & reload</button>
+            <button id="clearTokenButton" class="button button-secondary" type="button">Remove token</button>
+          </div>
+        </section>
+
+        <section class="dialog-section">
+          <h3>Base imagery</h3>
+          <div class="segmented" role="group" aria-label="Base imagery">
+            <button id="aerialButton" type="button" class="segment is-active">Aerial + labels</button>
+            <button id="streetButton" type="button" class="segment">Street map</button>
+          </div>
+        </section>
+
+        <section class="dialog-section">
+          <h3>Historical dataset</h3>
+          <p>Import verified house dates and resident records. Imported data is stored in this browser and can be exported again.</p>
+          <input id="importFileInput" class="file-input" type="file" accept="application/json,.json" />
+          <div class="button-row">
+            <button id="importButton" class="button" type="button">Import JSON</button>
+            <button id="exportButton" class="button button-secondary" type="button">Export current data</button>
+          </div>
+          <p id="importMessage" class="inline-message"></p>
+        </section>
+
+        <section class="dialog-section source-note">
+          <h3>Evidence policy</h3>
+          <p><strong>House construction dates</strong> should come from municipal, cadastral, notarial, architectural or building-survey evidence. <strong>Resident and kinship records</strong> may come from parish baptisms, marriages and deaths, with each transcription retaining its archival citation.</p>
+        </section>
+      </form>
+    </dialog>
+
+    <div id="toast" class="toast" role="status" aria-live="polite"></div>
+  </main>
+
+  <script src="https://cdn.jsdelivr.net/npm/cesium@1.127.0/Build/Cesium/Cesium.js"></script>
+  <script src="./app.js" type="module"></script>
+</body>
+</html>
