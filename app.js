@@ -1,11 +1,11 @@
 const KRIPAN = {
   lat: 42.5918,
   lon: -2.5155,
-  radiusMeters: 650,
-  cameraRangeMeters: 790,
-  maximumCameraRangeMeters: 1450,
-  villageHalfWidthDegrees: .0064,
-  villageHalfHeightDegrees: .0047
+  radiusMeters: 720,
+  fallbackCameraRangeMeters: 760,
+  boardPaddingDegrees: .00125,
+  imageryHalfWidthDegrees: .0105,
+  imageryHalfHeightDegrees: .0085
 };
 
 const STORAGE = {
@@ -127,7 +127,13 @@ const state = {
   timelineStartYear: 2024,
   timelineDurationMs: 18000,
   houseAnimationFrame: null,
-  houseAnimationLastTime: 0
+  houseAnimationLastTime: 0,
+  boardCenter: { lon: KRIPAN.lon, lat: KRIPAN.lat },
+  boardBounds: null,
+  boardRadiusMeters: 280,
+  cameraRangeMeters: KRIPAN.fallbackCameraRangeMeters,
+  boardOutlineEntity: null,
+  adminMode: new URLSearchParams(location.search).get("admin") === "1"
 };
 
 const el = Object.fromEntries([
@@ -148,12 +154,12 @@ boot().catch(error => {
 
 async function boot() {
   if (!window.Cesium) throw new Error("CesiumJS did not load. Check the network connection.");
+  document.body.classList.toggle("admin-mode", state.adminMode);
   state.houseOverrides = readJsonStorage(STORAGE.houseOverrides, {});
   state.importedDataset = readJsonStorage(STORAGE.dataset, null) || await fetchJson("./data/history.json");
   state.residents = normalizeResidents(state.importedDataset?.residents || []);
   bindUi();
   await createViewer();
-  resetView(false);
   await loadBuildings();
   updateTimeline();
 }
@@ -187,16 +193,16 @@ function bindUi() {
   el.playTimelineButton.addEventListener("click", toggleTimelinePlayback);
   el.rerollSimulationButton.addEventListener("click", rerollSimulation);
   el.closePanelButton.addEventListener("click", closeDetails);
-  el.settingsButton.addEventListener("click", openSettings);
-  el.resetViewButton.addEventListener("click", () => resetView(true));
-  el.orbitButton.addEventListener("click", toggleOrbit);
-  el.saveTokenButton.addEventListener("click", saveToken);
-  el.clearTokenButton.addEventListener("click", clearToken);
-  el.aerialButton.addEventListener("click", () => setImageryMode("aerial"));
-  el.streetButton.addEventListener("click", () => setImageryMode("street"));
-  el.importButton.addEventListener("click", importDataset);
-  el.exportButton.addEventListener("click", exportDataset);
-  el.houseForm.addEventListener("submit", saveHouseOverride);
+  el.settingsButton?.addEventListener("click", openSettings);
+  el.resetViewButton?.addEventListener("click", () => resetView(true));
+  el.orbitButton?.addEventListener("click", toggleOrbit);
+  el.saveTokenButton?.addEventListener("click", saveToken);
+  el.clearTokenButton?.addEventListener("click", clearToken);
+  el.aerialButton?.addEventListener("click", () => setImageryMode("aerial"));
+  el.streetButton?.addEventListener("click", () => setImageryMode("street"));
+  el.importButton?.addEventListener("click", importDataset);
+  el.exportButton?.addEventListener("click", exportDataset);
+  el.houseForm?.addEventListener("submit", saveHouseOverride);
   document.addEventListener("keydown", event => {
     if (event.key === "Escape") closeDetails();
   });
@@ -206,11 +212,8 @@ function bindUi() {
 }
 
 async function createViewer() {
-  const token = localStorage.getItem(STORAGE.token)?.trim();
-  if (token) Cesium.Ion.defaultAccessToken = token;
-
-  const baseLayer = createBaseLayer(state.imageryMode, Boolean(token));
-  const options = {
+  const baseLayer = createBaseLayer();
+  state.viewer = new Cesium.Viewer("cesiumContainer", {
     baseLayer,
     animation: false,
     timeline: false,
@@ -224,31 +227,42 @@ async function createViewer() {
     fullscreenButton: false,
     shadows: false,
     shouldAnimate: true
-  };
-  if (token) options.terrain = Cesium.Terrain.fromWorldTerrain({ requestVertexNormals: true });
+  });
 
-  state.viewer = new Cesium.Viewer("cesiumContainer", options);
   state.imageryLayer = state.viewer.imageryLayers.get(0);
   const scene = state.viewer.scene;
   const controller = scene.screenSpaceCameraController;
 
-  scene.globe.depthTestAgainstTerrain = true;
+  scene.backgroundColor = Cesium.Color.fromCssColorString("#16251f");
+  scene.globe.baseColor = Cesium.Color.fromCssColorString("#22362c");
+  scene.globe.depthTestAgainstTerrain = false;
   scene.globe.enableLighting = false;
+  scene.globe.showGroundAtmosphere = false;
   scene.fog.enabled = false;
-  scene.skyAtmosphere.show = true;
+  scene.skyAtmosphere.show = false;
+  if (scene.skyBox) scene.skyBox.show = false;
+  if (scene.sun) scene.sun.show = false;
+  if (scene.moon) scene.moon.show = false;
   scene.shadowMap.enabled = false;
   state.viewer.shadows = false;
 
-  controller.minimumZoomDistance = 95;
-  controller.maximumZoomDistance = KRIPAN.maximumCameraRangeMeters;
+  controller.minimumZoomDistance = 120;
+  controller.maximumZoomDistance = 1250;
   controller.enableTranslate = false;
   controller.inertiaTranslate = 0;
-  controller.inertiaZoom = .55;
-  controller.inertiaSpin = .55;
-  state.viewer.cesiumWidget.creditContainer.style.display = "block";
+  controller.inertiaZoom = .45;
+  controller.inertiaSpin = .45;
+  controller.enableCollisionDetection = true;
 
-  addVillageMask();
+  state.viewer.cesiumWidget.creditContainer.style.display = "block";
+  scene.globe.cartographicLimitRectangle = Cesium.Rectangle.fromDegrees(
+    KRIPAN.lon - KRIPAN.imageryHalfWidthDegrees,
+    KRIPAN.lat - KRIPAN.imageryHalfHeightDegrees,
+    KRIPAN.lon + KRIPAN.imageryHalfWidthDegrees,
+    KRIPAN.lat + KRIPAN.imageryHalfHeightDegrees
+  );
   state.peopleBillboards = scene.primitives.add(new Cesium.BillboardCollection({ scene }));
+  lockCameraToVillage(Cesium.Math.toRadians(8), Cesium.Math.toRadians(-48), state.cameraRangeMeters);
 
   const handler = new Cesium.ScreenSpaceEventHandler(scene.canvas);
   handler.setInputAction(event => {
@@ -262,70 +276,60 @@ async function createViewer() {
     if (agent) showToast(`${agent.name || agent.profession.name} · ${agent.profession.name}${agent.isArchival ? "" : " (illustrative)"}`);
   }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
-  updateImageryButtons();
   applyHistoricalStyle();
 }
 
-function createBaseLayer(mode, hasToken) {
-  if (hasToken) {
-    const style = mode === "street" ? Cesium.IonWorldImageryStyle.ROAD : Cesium.IonWorldImageryStyle.AERIAL_WITH_LABELS;
-    return Cesium.ImageryLayer.fromWorldImagery({ style });
-  }
-  return new Cesium.ImageryLayer(new Cesium.OpenStreetMapImageryProvider({
-    url: "https://tile.openstreetmap.org/",
-    credit: "© OpenStreetMap contributors"
-  }));
+function createBaseLayer() {
+  const rectangle = Cesium.Rectangle.fromDegrees(
+    KRIPAN.lon - KRIPAN.imageryHalfWidthDegrees,
+    KRIPAN.lat - KRIPAN.imageryHalfHeightDegrees,
+    KRIPAN.lon + KRIPAN.imageryHalfWidthDegrees,
+    KRIPAN.lat + KRIPAN.imageryHalfHeightDegrees
+  );
+  const provider = new Cesium.UrlTemplateImageryProvider({
+    url: "https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}.png",
+    subdomains: ["a", "b", "c", "d"],
+    rectangle,
+    maximumLevel: 20,
+    credit: "© OpenStreetMap contributors © CARTO"
+  });
+  return new Cesium.ImageryLayer(provider);
 }
 
-async function setImageryMode(mode) {
-  const token = localStorage.getItem(STORAGE.token)?.trim();
-  if (mode === "aerial" && !token) {
-    showToast("Add a Cesium ion token to use aerial imagery and World Terrain.");
-    openSettings();
-    return;
-  }
-  state.imageryMode = mode;
-  localStorage.setItem(STORAGE.imagery, mode);
-  const newLayer = createBaseLayer(mode, Boolean(token));
-  state.viewer.imageryLayers.removeAll();
-  state.viewer.imageryLayers.add(newLayer);
-  state.imageryLayer = state.viewer.imageryLayers.get(0);
-  updateImageryButtons();
-  applyHistoricalStyle();
+async function setImageryMode() {
+  showToast("The public game uses one clean, token-free Kripan map style.");
 }
 
-function updateImageryButtons() {
-  el.aerialButton.classList.toggle("is-active", state.imageryMode === "aerial");
-  el.streetButton.classList.toggle("is-active", state.imageryMode === "street");
-}
+function updateImageryButtons() {}
 
 async function loadBuildings() {
-  setStatus("Loading the Kripan game board…", "Retrieving real buildings and walking routes from OpenStreetMap", "loading");
+  setStatus("Loading Kripan…", "Retrieving the village footprint and walking routes", "loading");
   const elements = await fetchOverpassFeatures();
   const importedHouses = new Map((state.importedDataset?.houses || []).map(h => [normalizeHouseId(h.id || h.osmId), h]));
 
-  state.houses = elements
+  const candidateHouses = elements
     .filter(element => element.tags?.building)
     .map(overpassWayToHouse)
     .filter(Boolean)
     .map(osmHouse => mergeHouseData(osmHouse, importedHouses.get(osmHouse.id), state.houseOverrides[osmHouse.id]))
     .map(house => ({ ...house, simulatedYearBuilt: simulatedYearForHouse(house.id, state.simulationSeed) }));
 
+  state.houses = selectVillageCore(candidateHouses);
+  configureVillageBoard(state.houses);
+
   state.roads = elements
     .filter(element => element.tags?.highway)
     .map(overpassWayToRoad)
+    .filter(Boolean)
+    .map(road => clipRoadToBoard(road, state.boardBounds))
     .filter(Boolean);
 
   for (const house of state.houses) addHouseEntity(house);
   for (const road of state.roads) addRoadEntity(road);
 
+  resetView(false);
   const dated = state.houses.filter(h => Number.isFinite(h.yearBuilt)).length;
-  const simulated = state.houses.length - dated;
-  setStatus(
-    `${state.houses.length} buildings and ${state.roads.length} village routes loaded`,
-    `${dated} evidence-dated · ${simulated} available for visual simulation`,
-    "ok"
-  );
+  setStatus(`${state.houses.length} Kripan buildings loaded`, `${dated} evidence-dated`, "ok");
 }
 
 async function fetchOverpassFeatures() {
@@ -353,6 +357,132 @@ async function fetchOverpassFeatures() {
     }
   }
   throw new Error(`Could not retrieve OSM features. ${lastError?.message || "All Overpass endpoints failed."}`);
+}
+
+function selectVillageCore(houses) {
+  if (houses.length < 12) return houses;
+  const linkDistance = 125;
+  const visited = new Set();
+  const components = [];
+
+  for (let start = 0; start < houses.length; start++) {
+    if (visited.has(start)) continue;
+    const queue = [start];
+    const component = [];
+    visited.add(start);
+    while (queue.length) {
+      const index = queue.shift();
+      component.push(houses[index]);
+      const origin = [houses[index].longitude, houses[index].latitude];
+      for (let other = 0; other < houses.length; other++) {
+        if (visited.has(other)) continue;
+        const target = [houses[other].longitude, houses[other].latitude];
+        if (haversineMeters(origin, target) <= linkDistance) {
+          visited.add(other);
+          queue.push(other);
+        }
+      }
+    }
+    components.push(component);
+  }
+
+  components.sort((a, b) => b.length - a.length);
+  const core = components[0] || houses;
+  return core.length >= Math.max(10, Math.round(houses.length * .45)) ? core : houses;
+}
+
+function configureVillageBoard(houses) {
+  const coordinates = houses.flatMap(house => house.coordinates || [[house.longitude, house.latitude]]);
+  if (!coordinates.length) return;
+  let west = Infinity, east = -Infinity, south = Infinity, north = -Infinity;
+  for (const [lon, lat] of coordinates) {
+    west = Math.min(west, lon);
+    east = Math.max(east, lon);
+    south = Math.min(south, lat);
+    north = Math.max(north, lat);
+  }
+  west -= KRIPAN.boardPaddingDegrees;
+  east += KRIPAN.boardPaddingDegrees;
+  south -= KRIPAN.boardPaddingDegrees;
+  north += KRIPAN.boardPaddingDegrees;
+
+  state.boardBounds = { west, east, south, north };
+  state.boardCenter = { lon: (west + east) / 2, lat: (south + north) / 2 };
+  state.boardRadiusMeters = Math.max(180, haversineMeters([west, south], [east, north]) / 2);
+  state.cameraRangeMeters = Math.max(520, Math.min(980, state.boardRadiusMeters * 2.15));
+
+  const rectangle = Cesium.Rectangle.fromDegrees(west, south, east, north);
+  const scene = state.viewer.scene;
+  scene.globe.cartographicLimitRectangle = rectangle;
+  scene.globe.baseColor = Cesium.Color.fromCssColorString("#21362b");
+
+  try {
+    if (Cesium.ClippingPolygonCollection && Cesium.ClippingPolygon) {
+      scene.globe.clippingPolygons = new Cesium.ClippingPolygonCollection({
+        polygons: [new Cesium.ClippingPolygon({
+          positions: Cesium.Cartesian3.fromDegreesArray([
+            west, south,
+            east, south,
+            east, north,
+            west, north
+          ])
+        })],
+        inverse: true,
+        enabled: true
+      });
+    }
+  } catch (error) {
+    console.warn("Globe clipping unavailable; using cartographic board limit.", error);
+  }
+
+  const controller = scene.screenSpaceCameraController;
+  controller.maximumZoomDistance = Math.max(900, state.cameraRangeMeters * 1.45);
+  controller.minimumZoomDistance = Math.max(95, state.boardRadiusMeters * .34);
+
+  if (state.boardOutlineEntity) state.viewer.entities.remove(state.boardOutlineEntity);
+  state.boardOutlineEntity = state.viewer.entities.add({
+    id: "kripan-game-board-outline",
+    polyline: {
+      positions: Cesium.Cartesian3.fromDegreesArray([
+        west, south,
+        east, south,
+        east, north,
+        west, north,
+        west, south
+      ]),
+      width: 4,
+      clampToGround: true,
+      material: Cesium.Color.fromCssColorString("#e5c77b").withAlpha(.72),
+      shadows: Cesium.ShadowMode.DISABLED
+    }
+  });
+}
+
+function clipRoadToBoard(road, bounds) {
+  if (!bounds) return road;
+  const inside = ([lon, lat]) => lon >= bounds.west && lon <= bounds.east && lat >= bounds.south && lat <= bounds.north;
+  const segments = [];
+  let current = [];
+  for (const point of road.coordinates) {
+    if (inside(point)) {
+      current.push(point);
+    } else if (current.length) {
+      if (current.length >= 2) segments.push(current);
+      current = [];
+    }
+  }
+  if (current.length >= 2) segments.push(current);
+  if (!segments.length) return null;
+  segments.sort((a, b) => b.length - a.length);
+  const coordinates = segments[0];
+  const cumulative = [0];
+  let totalLength = 0;
+  for (let i = 1; i < coordinates.length; i++) {
+    totalLength += haversineMeters(coordinates[i - 1], coordinates[i]);
+    cumulative.push(totalLength);
+  }
+  if (totalLength < 8) return null;
+  return { ...road, coordinates, cumulative, totalLength };
 }
 
 function overpassWayToHouse(element) {
@@ -441,9 +571,10 @@ function addHouseEntity(house) {
     baseHeight: height,
     scale: 1,
     targetScale: 1,
-    alpha: house.yearBuilt ? .84 : .40,
-    targetAlpha: house.yearBuilt ? .84 : .40,
-    color: initialColor
+    alpha: house.yearBuilt ? .92 : .72,
+    targetAlpha: house.yearBuilt ? .92 : .72,
+    color: initialColor,
+    roofEntity: null
   };
   const entity = state.viewer.entities.add({
     id: `kripan-${house.id}`,
@@ -460,7 +591,7 @@ function addHouseEntity(house) {
       )),
       outline: true,
       outlineColor: new Cesium.CallbackProperty(
-        () => Cesium.Color.fromCssColorString("#e8ddc8").withAlpha(Math.max(0, visual.alpha * .66)),
+        () => Cesium.Color.fromCssColorString("#fff0cf").withAlpha(Math.max(0, visual.alpha * .70)),
         false
       ),
       closeTop: true,
@@ -471,6 +602,24 @@ function addHouseEntity(house) {
   });
   entity.kripanHouseId = house.id;
   entity.kripanVisual = visual;
+
+  const roofEntity = state.viewer.entities.add({
+    id: `kripan-roof-${house.id}`,
+    polygon: {
+      hierarchy: Cesium.Cartesian3.fromDegreesArray(flat),
+      height: new Cesium.CallbackProperty(() => visual.baseHeight * Math.max(0, visual.scale) + .12, false),
+      heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+      material: new Cesium.ColorMaterialProperty(new Cesium.CallbackProperty(() => {
+        const roof = Cesium.Color.lerp(visual.color, Cesium.Color.WHITE, .20, new Cesium.Color());
+        return roof.withAlpha(Math.max(0, visual.alpha * .96));
+      }, false)),
+      outline: false,
+      shadows: Cesium.ShadowMode.DISABLED
+    },
+    show: true
+  });
+  roofEntity.kripanHouseId = house.id;
+  visual.roofEntity = roofEntity;
   state.entities.set(house.id, entity);
 }
 
@@ -517,7 +666,10 @@ function setHouseVisualTarget(entity, show, color, alpha) {
   visual.color = color;
   visual.targetScale = show ? 1 : 0;
   visual.targetAlpha = show ? alpha : 0;
-  if (show) entity.show = true;
+  if (show) {
+    entity.show = true;
+    if (visual.roofEntity) visual.roofEntity.show = true;
+  }
   ensureHouseAnimation();
 }
 
@@ -545,6 +697,7 @@ function animateHouseTransitions(now) {
       visual.scale = 0;
       visual.alpha = 0;
       entity.show = false;
+      if (visual.roofEntity) visual.roofEntity.show = false;
     }
   }
 
@@ -702,14 +855,14 @@ function buildVillagePeople(era, desiredCount, archivalPeople, visibleHouses) {
     const billboard = state.peopleBillboards.add({
       position: Cesium.Cartesian3.fromDegrees(point[0], point[1], .7),
       image: personSprite(profession, 0),
-      width: 31,
-      height: 48,
+      width: 44,
+      height: 64,
       verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
       horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
       heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
-      disableDepthTestDistance: 650,
-      scaleByDistance: new Cesium.NearFarScalar(120, 1.32, 1450, .58),
-      translucencyByDistance: new Cesium.NearFarScalar(80, 1, 1600, .72),
+      disableDepthTestDistance: Number.POSITIVE_INFINITY,
+      scaleByDistance: new Cesium.NearFarScalar(110, 1.55, 1250, .88),
+      translucencyByDistance: new Cesium.NearFarScalar(80, 1, 1450, .92),
       id: { kripanAgent: agent }
     });
     agent.billboard = billboard;
@@ -1116,7 +1269,7 @@ function toggleTimelinePlayback() {
   state.timelineStartYear = state.year;
   state.timelineStartTime = performance.now();
   state.timelineDurationMs = Math.max(2200, 18000 * ((state.timelineStartYear - 1500) / 524));
-  el.playTimelineButton.textContent = "❚❚ Pause";
+  el.playTimelineButton.textContent = "❚❚";
   el.playTimelineButton.classList.add("is-active");
   state.timelineFrame = requestAnimationFrame(stepTimelinePlayback);
 }
@@ -1142,25 +1295,25 @@ function stopTimelinePlayback() {
   if (state.timelineFrame) cancelAnimationFrame(state.timelineFrame);
   state.timelineFrame = null;
   if (el.playTimelineButton) {
-    el.playTimelineButton.textContent = "▶ Play backwards";
+    el.playTimelineButton.textContent = "▶";
     el.playTimelineButton.classList.remove("is-active");
   }
 }
 
 function resetView(animated = true) {
   stopOrbit(false);
-  const center = Cesium.Cartesian3.fromDegrees(KRIPAN.lon, KRIPAN.lat, 0);
+  const center = Cesium.Cartesian3.fromDegrees(state.boardCenter.lon, state.boardCenter.lat, 0);
   const offset = new Cesium.HeadingPitchRange(
-    Cesium.Math.toRadians(10),
-    Cesium.Math.toRadians(-43),
-    KRIPAN.cameraRangeMeters
+    Cesium.Math.toRadians(8),
+    Cesium.Math.toRadians(-48),
+    state.cameraRangeMeters
   );
   state.orbitHeading = offset.heading;
   if (animated) {
     state.viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
-    state.viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(center, 210), {
+    state.viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(center, state.boardRadiusMeters), {
       offset,
-      duration: 1.1,
+      duration: .85,
       complete: () => lockCameraToVillage(offset.heading, offset.pitch, offset.range)
     });
   } else {
@@ -1169,8 +1322,12 @@ function resetView(animated = true) {
 }
 
 function lockCameraToVillage(heading, pitch, range) {
-  const center = Cesium.Cartesian3.fromDegrees(KRIPAN.lon, KRIPAN.lat, 0);
-  state.viewer.camera.lookAt(center, new Cesium.HeadingPitchRange(heading, pitch, range));
+  const center = Cesium.Cartesian3.fromDegrees(state.boardCenter.lon, state.boardCenter.lat, 0);
+  const safeRange = Math.max(
+    state.viewer.scene.screenSpaceCameraController.minimumZoomDistance,
+    Math.min(range, state.viewer.scene.screenSpaceCameraController.maximumZoomDistance)
+  );
+  state.viewer.camera.lookAt(center, new Cesium.HeadingPitchRange(heading, pitch, safeRange));
 }
 
 function toggleOrbit() {
@@ -1179,12 +1336,12 @@ function toggleOrbit() {
 
 function startOrbit() {
   state.orbiting = true;
-  el.orbitButton.classList.add("is-active");
-  const center = Cesium.Cartesian3.fromDegrees(KRIPAN.lon, KRIPAN.lat, 0);
+  el.orbitButton?.classList.add("is-active");
+  const center = Cesium.Cartesian3.fromDegrees(state.boardCenter.lon, state.boardCenter.lat, 0);
   const tick = () => {
     if (!state.orbiting) return;
-    state.orbitHeading += .0017;
-    state.viewer.camera.lookAt(center, new Cesium.HeadingPitchRange(state.orbitHeading, Cesium.Math.toRadians(-38), KRIPAN.cameraRangeMeters));
+    state.orbitHeading += .00145;
+    state.viewer.camera.lookAt(center, new Cesium.HeadingPitchRange(state.orbitHeading, Cesium.Math.toRadians(-45), state.cameraRangeMeters));
     state.orbitFrame = requestAnimationFrame(tick);
   };
   tick();
@@ -1196,7 +1353,7 @@ function stopOrbit(keepCurrentView = true) {
   if (state.orbitFrame) cancelAnimationFrame(state.orbitFrame);
   state.orbitFrame = null;
   if (state.viewer && keepCurrentView) {
-    lockCameraToVillage(state.orbitHeading || Cesium.Math.toRadians(10), Cesium.Math.toRadians(-38), KRIPAN.cameraRangeMeters);
+    lockCameraToVillage(state.orbitHeading || Cesium.Math.toRadians(8), Cesium.Math.toRadians(-45), state.cameraRangeMeters);
   }
 }
 

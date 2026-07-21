@@ -3,49 +3,47 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#171713" />
-  <title>Kripan Village Time Machine</title>
+  <meta name="theme-color" content="#16251f" />
+  <title>Kripan Village Time Game</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cesium@1.127.0/Build/Cesium/Widgets/widgets.css" />
   <link rel="stylesheet" href="./styles.css" />
 </head>
 <body>
   <main id="app">
-    <div id="cesiumContainer" aria-label="Interactive 3D map of Kripan"></div>
-    <div id="historicalWash" aria-hidden="true"></div>
+    <div class="game-frame" aria-label="Interactive miniature map of Kripan">
+      <div id="cesiumContainer"></div>
+      <div id="historicalWash" aria-hidden="true"></div>
+      <div class="board-vignette" aria-hidden="true"></div>
+    </div>
 
-    <header class="topbar glass">
-      <div class="brand">
-        <span class="brand-mark" aria-hidden="true">K</span>
-        <div>
-          <h1>Kripan</h1>
-          <p>Village time machine</p>
-        </div>
-      </div>
-      <div class="topbar-actions">
-        <button id="resetViewButton" class="icon-button" type="button" title="Reset camera" aria-label="Reset camera">⌂</button>
-        <button id="orbitButton" class="icon-button" type="button" title="Orbit village" aria-label="Orbit village">↻</button>
-        <button id="settingsButton" class="button button-secondary" type="button">Data & map</button>
+    <header class="brand-card game-panel">
+      <span class="brand-mark" aria-hidden="true">K</span>
+      <div>
+        <h1>Kripan</h1>
+        <p>Village time game</p>
       </div>
     </header>
 
-    <section class="status-card glass" aria-live="polite">
-      <span id="loadingDot" class="status-dot is-loading"></span>
-      <div>
-        <strong id="statusTitle">Loading the Kripan game board…</strong>
-        <span id="statusDetail">Retrieving real buildings and walking routes from OpenStreetMap</span>
-      </div>
+    <nav class="camera-controls game-panel" aria-label="Map controls">
+      <button id="resetViewButton" class="round-button" type="button" title="Center Kripan" aria-label="Center Kripan">⌂</button>
+      <button id="orbitButton" class="round-button" type="button" title="Orbit Kripan" aria-label="Orbit Kripan">↻</button>
+      <button id="settingsButton" class="round-button admin-only" type="button" title="Archive tools" aria-label="Archive tools">⚙</button>
+    </nav>
+
+    <section id="villageHud" class="era-card game-panel" aria-live="polite">
+      <strong id="eraTitle">Contemporary Kripan</strong>
+      <span><b id="peopleCount">0</b> villagers</span>
+      <div id="professionStrip" hidden></div>
+      <p id="mapBoundaryNote" hidden></p>
     </section>
 
-    <section id="villageHud" class="village-hud glass" aria-live="polite">
-      <div class="village-hud-heading">
-        <div><span class="eyebrow">Village life</span><strong id="eraTitle">Contemporary Kripan</strong></div>
-        <span class="people-pill"><strong id="peopleCount">0</strong> villagers</span>
-      </div>
-      <div id="professionStrip" class="profession-strip" aria-label="Illustrative professions"></div>
-      <p id="mapBoundaryNote">Game camera locked to Kripan · people and unverified dates are illustrative until archival records are imported.</p>
+    <section class="status-card sr-only" aria-live="polite">
+      <span id="loadingDot"></span>
+      <strong id="statusTitle">Loading Kripan…</strong>
+      <span id="statusDetail"></span>
     </section>
 
-    <aside id="detailsPanel" class="details-panel glass" aria-label="House details" aria-hidden="true">
+    <aside id="detailsPanel" class="details-panel game-panel" aria-label="House details" aria-hidden="true">
       <div class="panel-handle" aria-hidden="true"></div>
       <div class="panel-header">
         <div>
@@ -53,7 +51,7 @@
           <h2 id="houseTitle">Select a building</h2>
           <p id="houseSubtitle"></p>
         </div>
-        <button id="closePanelButton" class="icon-button" type="button" aria-label="Close details">×</button>
+        <button id="closePanelButton" class="round-button small" type="button" aria-label="Close details">×</button>
       </div>
       <div id="houseQuality" class="quality-note"></div>
 
@@ -73,9 +71,9 @@
         <div id="familyTree" class="family-tree empty-state">The tree appears after a resident record is selected.</div>
       </section>
 
-      <section class="panel-section curator-section">
+      <section class="panel-section curator-section admin-only">
         <details>
-          <summary>Curator record</summary>
+          <summary>Edit archival record</summary>
           <form id="houseForm" class="record-form">
             <label>House name<input id="editHouseName" type="text" autocomplete="off" /></label>
             <label>Street<input id="editStreetName" type="text" autocomplete="off" /></label>
@@ -83,91 +81,68 @@
               <label>Year built<input id="editYearBuilt" type="number" min="1200" max="2024" /></label>
               <label>Year demolished<input id="editYearDemolished" type="number" min="1200" max="2024" /></label>
             </div>
-            <label>Source / archival reference<input id="editSourceRef" type="text" autocomplete="off" placeholder="Archive, book, folio, cadastral reference…" /></label>
+            <label>Source reference<input id="editSourceRef" type="text" autocomplete="off" /></label>
             <button class="button" type="submit">Save local override</button>
           </form>
         </details>
       </section>
     </aside>
 
-    <section class="timeline-card glass" aria-label="Historical timeline">
-      <div class="timeline-header">
-        <div>
-          <span class="eyebrow">Village year</span>
-          <div class="year-readout"><output id="yearOutput" for="yearSlider">2024</output><span id="periodLabel">Present day</span></div>
+    <section class="timeline-card game-panel" aria-label="Historical timeline">
+      <button id="playTimelineButton" class="play-button" type="button" aria-label="Play timeline backwards">▶</button>
+      <div class="timeline-main">
+        <div class="timeline-topline">
+          <span>1500</span>
+          <output id="yearOutput" for="yearSlider">2024</output>
+          <span>2024</span>
         </div>
-        <div class="timeline-stats">
-          <div class="timeline-control-row">
-            <button id="playTimelineButton" class="button timeline-play-button" type="button">▶ Play backwards</button>
-            <span><strong id="visibleHouseCount">0</strong> houses</span>
-          </div>
-          <label class="toggle-row"><input id="villageLifeToggle" type="checkbox" checked /><span>Miniature village life</span></label>
-          <label class="toggle-row" title="Assigns stable simulated appearance years to undated OSM footprints. This is not archival evidence."><input id="simulationToggle" type="checkbox" checked /><span>Animate estimated history</span></label>
-          <label class="toggle-row"><input id="showUndatedToggle" type="checkbox" checked /><span>Show undated current buildings</span></label>
-        </div>
-      </div>
-      <div class="slider-wrap">
-        <span>1500</span>
         <input id="yearSlider" type="range" min="1500" max="2024" step="1" value="2024" aria-label="Select historical year" />
-        <span>2024</span>
+        <div class="timeline-caption">
+          <span id="periodLabel">Present day</span>
+          <span><strong id="visibleHouseCount">0</strong> houses</span>
+        </div>
       </div>
-      <div class="century-marks" aria-hidden="true"><span>1500</span><span>1600</span><span>1700</span><span>1800</span><span>1900</span><span>2000</span></div>
+      <div class="hidden-controls" aria-hidden="true">
+        <label><input id="villageLifeToggle" type="checkbox" checked />Village life</label>
+        <label><input id="simulationToggle" type="checkbox" checked />Simulation</label>
+        <label><input id="showUndatedToggle" type="checkbox" checked />Undated</label>
+      </div>
     </section>
 
     <dialog id="settingsDialog" class="settings-dialog">
-      <form method="dialog" class="dialog-card">
+      <form method="dialog" class="dialog-card game-panel">
         <div class="panel-header">
-          <div><span class="eyebrow">Configuration</span><h2>Data & map settings</h2></div>
-          <button class="icon-button" value="cancel" aria-label="Close settings">×</button>
+          <div><span class="eyebrow">Historian mode</span><h2>Archive tools</h2></div>
+          <button class="round-button small" value="cancel" aria-label="Close tools">×</button>
         </div>
 
         <section class="dialog-section">
-          <h3>Cesium ion token</h3>
-          <p>Required for Cesium World Terrain and Cesium World Imagery. Without it, the app uses a real OpenStreetMap street layer over an ellipsoid.</p>
-          <label class="full-label">Token<input id="tokenInput" type="password" autocomplete="off" placeholder="Paste a Cesium ion access token" /></label>
-          <div class="button-row">
-            <button id="saveTokenButton" class="button" type="button">Save & reload</button>
-            <button id="clearTokenButton" class="button button-secondary" type="button">Remove token</button>
-          </div>
-        </section>
-
-        <section class="dialog-section">
-          <h3>Base imagery</h3>
-          <div class="segmented" role="group" aria-label="Base imagery">
-            <button id="aerialButton" type="button" class="segment is-active">Aerial + labels</button>
-            <button id="streetButton" type="button" class="segment">Street map</button>
-          </div>
-        </section>
-
-        <section class="dialog-section game-note">
-          <h3>Miniature village simulation</h3>
-          <p>Animated people follow current OpenStreetMap village routes. Their era-based professions are illustrative unless a resident record includes a verified <code>profession</code> and occupation years. The camera is locked to the Kripan board, and terrain/building shadows are disabled.</p>
-        </section>
-
-        <section class="dialog-section">
-          <h3>Historical animation simulation</h3>
-          <p>Undated OpenStreetMap footprints can be assigned stable pseudo-random appearance years so buildings shrink and fade as the map travels backward. These years are visual placeholders only and are never treated as archival evidence.</p>
-          <div class="button-row">
-            <button id="rerollSimulationButton" class="button" type="button">Generate a new pattern</button>
-            <span id="simulationSeedLabel" class="muted-label"></span>
-          </div>
-        </section>
-
-        <section class="dialog-section">
           <h3>Historical dataset</h3>
-          <p>Import verified house dates and resident records. Imported data is stored in this browser and can be exported again.</p>
+          <p>Import or export verified houses, residents and family links.</p>
           <input id="importFileInput" class="file-input" type="file" accept="application/json,.json" />
           <div class="button-row">
             <button id="importButton" class="button" type="button">Import JSON</button>
-            <button id="exportButton" class="button button-secondary" type="button">Export current data</button>
+            <button id="exportButton" class="button secondary" type="button">Export data</button>
           </div>
           <p id="importMessage" class="inline-message"></p>
         </section>
 
-        <section class="dialog-section source-note">
-          <h3>Evidence policy</h3>
-          <p><strong>House construction dates</strong> should come from municipal, cadastral, notarial, architectural or building-survey evidence. <strong>Resident and kinship records</strong> may come from parish baptisms, marriages and deaths, with each transcription retaining its archival citation.</p>
+        <section class="dialog-section">
+          <h3>Visual simulation</h3>
+          <p>Generate another stable visual construction pattern for undated OSM buildings.</p>
+          <div class="button-row">
+            <button id="rerollSimulationButton" class="button" type="button">Generate new pattern</button>
+            <span id="simulationSeedLabel" class="muted-label"></span>
+          </div>
         </section>
+
+        <div class="compatibility-controls" hidden>
+          <input id="tokenInput" type="password" />
+          <button id="saveTokenButton" type="button"></button>
+          <button id="clearTokenButton" type="button"></button>
+          <button id="aerialButton" type="button"></button>
+          <button id="streetButton" type="button"></button>
+        </div>
       </form>
     </dialog>
 
