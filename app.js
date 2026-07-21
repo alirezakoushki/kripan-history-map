@@ -1,18 +1,106 @@
-const KRIPAN = { lat: 42.5918, lon: -2.5155, radiusMeters: 900 };
+const KRIPAN = {
+  lat: 42.5918,
+  lon: -2.5155,
+  radiusMeters: 650,
+  cameraRangeMeters: 790,
+  maximumCameraRangeMeters: 1450,
+  villageHalfWidthDegrees: .0064,
+  villageHalfHeightDegrees: .0047
+};
+
 const STORAGE = {
   token: "kripan.cesiumToken",
   dataset: "kripan.historyDataset",
   houseOverrides: "kripan.houseOverrides",
   imagery: "kripan.imagery",
   simulation: "kripan.simulationMode",
-  simulationSeed: "kripan.simulationSeed"
+  simulationSeed: "kripan.simulationSeed",
+  villageLife: "kripan.villageLife"
 };
+
+// These roles are illustrative era-appropriate activity, not claims about named historical residents.
+const PROFESSION_ERAS = [
+  {
+    id: "early-modern",
+    min: 1500,
+    max: 1649,
+    title: "Early village economy",
+    people: 10,
+    professions: [
+      ["Farmer", "🌾", "#8d6e3b"], ["Shepherd", "🐑", "#6d7b58"], ["Vintner", "🍇", "#7b4c64"],
+      ["Blacksmith", "⚒", "#54565d"], ["Carpenter", "🪚", "#8b5d3b"], ["Stonemason", "🪨", "#77736b"],
+      ["Weaver", "🧶", "#8c5c72"], ["Miller", "🌾", "#a28b5d"], ["Muleteer", "🐴", "#70533f"], ["Parish worker", "✣", "#5f6474"]
+    ]
+  },
+  {
+    id: "seventeenth-eighteenth",
+    min: 1650,
+    max: 1799,
+    title: "Crafts and vineyard village",
+    people: 13,
+    professions: [
+      ["Farmer", "🌾", "#8d6e3b"], ["Vintner", "🍇", "#7b4c64"], ["Shepherd", "🐑", "#6d7b58"],
+      ["Cooper", "🛢", "#865d3e"], ["Blacksmith", "⚒", "#54565d"], ["Carpenter", "🪚", "#8b5d3b"],
+      ["Baker", "🥖", "#b5844f"], ["Stonemason", "🪨", "#77736b"], ["Inn worker", "🍲", "#88634e"], ["Muleteer", "🐴", "#70533f"]
+    ]
+  },
+  {
+    id: "nineteenth",
+    min: 1800,
+    max: 1899,
+    title: "Nineteenth-century working village",
+    people: 16,
+    professions: [
+      ["Farmer", "🌾", "#8d6e3b"], ["Winegrower", "🍇", "#7b4c64"], ["Cart driver", "🛞", "#6d5a45"],
+      ["Blacksmith", "⚒", "#54565d"], ["Carpenter", "🪚", "#8b5d3b"], ["Schoolteacher", "📖", "#4f6b78"],
+      ["Shopkeeper", "⚖", "#8a6c4f"], ["Baker", "🥖", "#b5844f"], ["Farm labourer", "⛏", "#64704f"], ["Seamstress", "🧵", "#885f78"]
+    ]
+  },
+  {
+    id: "early-twentieth",
+    min: 1900,
+    max: 1949,
+    title: "Early twentieth-century village",
+    people: 18,
+    professions: [
+      ["Farmer", "🌾", "#7d713f"], ["Winegrower", "🍇", "#744c64"], ["Mechanic", "🔧", "#4e6570"],
+      ["Builder", "🧱", "#9b6550"], ["Shopkeeper", "⚖", "#8a6c4f"], ["Teacher", "📖", "#4f6b78"],
+      ["Postal worker", "✉", "#5c6f77"], ["Baker", "🥖", "#b5844f"], ["Cart driver", "🛞", "#6d5a45"], ["Carpenter", "🪚", "#8b5d3b"]
+    ]
+  },
+  {
+    id: "late-twentieth",
+    min: 1950,
+    max: 1999,
+    title: "Mechanised rural village",
+    people: 22,
+    professions: [
+      ["Farmer", "🚜", "#65734f"], ["Winegrower", "🍇", "#744c64"], ["Factory worker", "⚙", "#4e6570"],
+      ["Mechanic", "🔧", "#4e6570"], ["Builder", "🧱", "#9b6550"], ["Teacher", "📖", "#4f6b78"],
+      ["Nurse", "✚", "#5f7e7c"], ["Shopkeeper", "🛒", "#8a6c4f"], ["Municipal worker", "🧹", "#596d65"], ["Driver", "🚚", "#5a6570"]
+    ]
+  },
+  {
+    id: "contemporary",
+    min: 2000,
+    max: 2024,
+    title: "Contemporary Kripan",
+    people: 25,
+    professions: [
+      ["Winegrower", "🍇", "#744c64"], ["Farmer", "🚜", "#65734f"], ["Technician", "💻", "#486f7a"],
+      ["Teacher", "📖", "#4f6b78"], ["Hospitality worker", "☕", "#8a6251"], ["Builder", "🧱", "#9b6550"],
+      ["Municipal worker", "🧹", "#596d65"], ["Shop worker", "🛒", "#8a6c4f"], ["Mechanic", "🔧", "#4e6570"], ["Office worker", "📋", "#5f6880"]
+    ]
+  }
+];
 
 const state = {
   viewer: null,
   imageryLayer: null,
   entities: new Map(),
+  roadEntities: [],
   houses: [],
+  roads: [],
   residents: [],
   selectedHouse: null,
   selectedResidentId: null,
@@ -26,6 +114,13 @@ const state = {
   imageryMode: localStorage.getItem(STORAGE.imagery) || "aerial",
   simulateUndated: localStorage.getItem(STORAGE.simulation) !== "false",
   simulationSeed: Number(localStorage.getItem(STORAGE.simulationSeed)) || 4215918,
+  villageLifeEnabled: localStorage.getItem(STORAGE.villageLife) !== "false",
+  peopleBillboards: null,
+  people: [],
+  peopleEraId: null,
+  peopleLastTime: 0,
+  peopleAnimationFrame: null,
+  personSpriteCache: new Map(),
   timelinePlaying: false,
   timelineFrame: null,
   timelineStartTime: 0,
@@ -42,7 +137,8 @@ const el = Object.fromEntries([
   "tokenInput","saveTokenButton","clearTokenButton","aerialButton","streetButton","importFileInput","importButton",
   "exportButton","importMessage","resetViewButton","orbitButton","historicalWash","houseForm","editHouseName",
   "editStreetName","editYearBuilt","editYearDemolished","editSourceRef","toast","simulationToggle",
-  "playTimelineButton","rerollSimulationButton","simulationSeedLabel"
+  "playTimelineButton","rerollSimulationButton","simulationSeedLabel","villageLifeToggle","peopleCount",
+  "eraTitle","professionStrip","villageHud","mapBoundaryNote"
 ].map(id => [id, document.getElementById(id)]));
 
 boot().catch(error => {
@@ -83,6 +179,11 @@ function bindUi() {
     updateSimulationUi();
     updateTimeline();
   });
+  el.villageLifeToggle.addEventListener("change", () => {
+    state.villageLifeEnabled = el.villageLifeToggle.checked;
+    localStorage.setItem(STORAGE.villageLife, String(state.villageLifeEnabled));
+    refreshVillageLife(true);
+  });
   el.playTimelineButton.addEventListener("click", toggleTimelinePlayback);
   el.rerollSimulationButton.addEventListener("click", rerollSimulation);
   el.closePanelButton.addEventListener("click", closeDetails);
@@ -100,6 +201,7 @@ function bindUi() {
     if (event.key === "Escape") closeDetails();
   });
   el.simulationToggle.checked = state.simulateUndated;
+  el.villageLifeToggle.checked = state.villageLifeEnabled;
   updateSimulationUi();
 }
 
@@ -120,25 +222,44 @@ async function createViewer() {
     infoBox: false,
     selectionIndicator: false,
     fullscreenButton: false,
+    shadows: false,
     shouldAnimate: true
   };
   if (token) options.terrain = Cesium.Terrain.fromWorldTerrain({ requestVertexNormals: true });
 
   state.viewer = new Cesium.Viewer("cesiumContainer", options);
   state.imageryLayer = state.viewer.imageryLayers.get(0);
-  state.viewer.scene.globe.depthTestAgainstTerrain = true;
-  state.viewer.scene.globe.enableLighting = Boolean(token);
-  state.viewer.scene.fog.enabled = true;
-  state.viewer.scene.screenSpaceCameraController.minimumZoomDistance = 35;
-  state.viewer.scene.screenSpaceCameraController.maximumZoomDistance = 9000;
-  state.viewer.scene.skyAtmosphere.show = true;
+  const scene = state.viewer.scene;
+  const controller = scene.screenSpaceCameraController;
+
+  scene.globe.depthTestAgainstTerrain = true;
+  scene.globe.enableLighting = false;
+  scene.fog.enabled = false;
+  scene.skyAtmosphere.show = true;
+  scene.shadowMap.enabled = false;
+  state.viewer.shadows = false;
+
+  controller.minimumZoomDistance = 95;
+  controller.maximumZoomDistance = KRIPAN.maximumCameraRangeMeters;
+  controller.enableTranslate = false;
+  controller.inertiaTranslate = 0;
+  controller.inertiaZoom = .55;
+  controller.inertiaSpin = .55;
   state.viewer.cesiumWidget.creditContainer.style.display = "block";
 
-  const handler = new Cesium.ScreenSpaceEventHandler(state.viewer.scene.canvas);
+  addVillageMask();
+  state.peopleBillboards = scene.primitives.add(new Cesium.BillboardCollection({ scene }));
+
+  const handler = new Cesium.ScreenSpaceEventHandler(scene.canvas);
   handler.setInputAction(event => {
-    const picked = state.viewer.scene.pick(event.position);
+    const picked = scene.pick(event.position);
     const entity = picked?.id;
-    if (entity?.kripanHouseId) openHouse(entity.kripanHouseId);
+    if (entity?.kripanHouseId) {
+      openHouse(entity.kripanHouseId);
+      return;
+    }
+    const agent = entity?.kripanAgent || picked?.primitive?.id?.kripanAgent;
+    if (agent) showToast(`${agent.name || agent.profession.name} · ${agent.profession.name}${agent.isArchival ? "" : " (illustrative)"}`);
   }, Cesium.ScreenSpaceEventType.LEFT_CLICK);
 
   updateImageryButtons();
@@ -179,29 +300,36 @@ function updateImageryButtons() {
 }
 
 async function loadBuildings() {
-  setStatus("Loading Kripan building footprints…", "Querying OpenStreetMap through Overpass", "loading");
-  const elements = await fetchOverpassBuildings();
+  setStatus("Loading the Kripan game board…", "Retrieving real buildings and walking routes from OpenStreetMap", "loading");
+  const elements = await fetchOverpassFeatures();
   const importedHouses = new Map((state.importedDataset?.houses || []).map(h => [normalizeHouseId(h.id || h.osmId), h]));
 
   state.houses = elements
+    .filter(element => element.tags?.building)
     .map(overpassWayToHouse)
     .filter(Boolean)
     .map(osmHouse => mergeHouseData(osmHouse, importedHouses.get(osmHouse.id), state.houseOverrides[osmHouse.id]))
     .map(house => ({ ...house, simulatedYearBuilt: simulatedYearForHouse(house.id, state.simulationSeed) }));
 
+  state.roads = elements
+    .filter(element => element.tags?.highway)
+    .map(overpassWayToRoad)
+    .filter(Boolean);
+
   for (const house of state.houses) addHouseEntity(house);
+  for (const road of state.roads) addRoadEntity(road);
 
   const dated = state.houses.filter(h => Number.isFinite(h.yearBuilt)).length;
   const simulated = state.houses.length - dated;
   setStatus(
-    `${state.houses.length} live OSM buildings loaded`,
+    `${state.houses.length} buildings and ${state.roads.length} village routes loaded`,
     `${dated} evidence-dated · ${simulated} available for visual simulation`,
     "ok"
   );
 }
 
-async function fetchOverpassBuildings() {
-  const query = `[out:json][timeout:35];way["building"](around:${KRIPAN.radiusMeters},${KRIPAN.lat},${KRIPAN.lon});out tags geom;`;
+async function fetchOverpassFeatures() {
+  const query = `[out:json][timeout:35];(way["building"](around:${KRIPAN.radiusMeters},${KRIPAN.lat},${KRIPAN.lon});way["highway"](around:${KRIPAN.radiusMeters},${KRIPAN.lat},${KRIPAN.lon}););out tags geom;`;
   const endpoints = [
     "https://overpass-api.de/api/interpreter",
     "https://overpass.kumi.systems/api/interpreter",
@@ -224,7 +352,7 @@ async function fetchOverpassBuildings() {
       console.warn("Overpass endpoint failed", endpoint, error);
     }
   }
-  throw new Error(`Could not retrieve OSM footprints. ${lastError?.message || "All Overpass endpoints failed."}`);
+  throw new Error(`Could not retrieve OSM features. ${lastError?.message || "All Overpass endpoints failed."}`);
 }
 
 function overpassWayToHouse(element) {
@@ -254,6 +382,45 @@ function overpassWayToHouse(element) {
   };
 }
 
+function overpassWayToRoad(element) {
+  if (element.type !== "way" || !Array.isArray(element.geometry) || element.geometry.length < 2) return null;
+  const allowed = new Set(["residential", "living_street", "pedestrian", "service", "unclassified", "tertiary", "track", "path", "footway", "steps"]);
+  const highway = element.tags?.highway;
+  if (!allowed.has(highway)) return null;
+  const coordinates = element.geometry.map(p => [Number(p.lon), Number(p.lat)]);
+  const cumulative = [0];
+  let totalLength = 0;
+  for (let i = 1; i < coordinates.length; i++) {
+    totalLength += haversineMeters(coordinates[i - 1], coordinates[i]);
+    cumulative.push(totalLength);
+  }
+  if (totalLength < 8) return null;
+  return {
+    id: `road/${element.id}`,
+    highway,
+    name: element.tags?.name || null,
+    coordinates,
+    cumulative,
+    totalLength
+  };
+}
+
+function addRoadEntity(road) {
+  const flat = road.coordinates.flatMap(([lon, lat]) => [lon, lat]);
+  const isFoot = ["path", "footway", "steps", "track"].includes(road.highway);
+  const entity = state.viewer.entities.add({
+    id: `kripan-${road.id}`,
+    polyline: {
+      positions: Cesium.Cartesian3.fromDegreesArray(flat),
+      width: isFoot ? 1.4 : 2.4,
+      clampToGround: true,
+      material: Cesium.Color.fromCssColorString(isFoot ? "#d8c9a6" : "#eee2c4").withAlpha(isFoot ? .30 : .38),
+      shadows: Cesium.ShadowMode.DISABLED
+    }
+  });
+  state.roadEntities.push(entity);
+}
+
 function mergeHouseData(osm, imported, override) {
   const merged = { ...osm, ...(imported || {}), ...(override || {}) };
   merged.id = osm.id;
@@ -269,7 +436,7 @@ function mergeHouseData(osm, imported, override) {
 function addHouseEntity(house) {
   const flat = house.coordinates.flatMap(([lon, lat]) => [lon, lat]);
   const height = house.heightMeters || (house.levels ? house.levels * 3.1 : 7.5);
-  const initialColor = house.yearBuilt ? colorForYear(house.yearBuilt, 1) : Cesium.Color.fromCssColorString("#a9a49a");
+  const initialColor = house.yearBuilt ? gameHouseColor(house, house.yearBuilt) : gameHouseColor(house, house.simulatedYearBuilt || 2024);
   const visual = {
     baseHeight: height,
     scale: 1,
@@ -297,7 +464,8 @@ function addHouseEntity(house) {
         false
       ),
       closeTop: true,
-      closeBottom: true
+      closeBottom: true,
+      shadows: Cesium.ShadowMode.DISABLED
     },
     show: true
   });
@@ -312,6 +480,7 @@ function updateTimeline() {
   el.periodLabel.textContent = periodForYear(state.year);
   el.residentsYear.textContent = String(state.year);
   let visible = 0;
+  const visibleHouses = [];
   for (const house of state.houses) {
     const entity = state.entities.get(house.id);
     const hasVerifiedYear = Number.isFinite(house.yearBuilt);
@@ -321,17 +490,21 @@ function updateTimeline() {
     const show = datedVisible || undatedVisible;
     if (entity) {
       const baseColor = hasVerifiedYear
-        ? colorForYear(house.yearBuilt, 1)
+        ? gameHouseColor(house, house.yearBuilt)
         : state.simulateUndated
-          ? simulationColorForYear(house.simulatedYearBuilt)
+          ? gameHouseColor(house, house.simulatedYearBuilt)
           : Cesium.Color.fromCssColorString("#a9a49a");
       const alpha = hasVerifiedYear ? .84 : (state.simulateUndated ? .64 : (state.year === 2024 ? .40 : .22));
       setHouseVisualTarget(entity, show, baseColor, alpha);
     }
-    if (show) visible++;
+    if (show) {
+      visible++;
+      visibleHouses.push(house);
+    }
   }
   el.visibleHouseCount.textContent = String(visible);
   applyHistoricalStyle();
+  refreshVillageLife(false, visibleHouses);
   if (state.selectedHouse) renderHousePanel();
 }
 
@@ -386,15 +559,294 @@ function animateHouseTransitions(now) {
 function applyHistoricalStyle() {
   const t = smoothstep((state.year - 1500) / (2024 - 1500));
   if (state.imageryLayer) {
-    state.imageryLayer.saturation = 0.05 + .95 * t;
-    state.imageryLayer.brightness = .74 + .26 * t;
-    state.imageryLayer.contrast = 1.26 - .26 * t;
-    state.imageryLayer.gamma = .86 + .14 * t;
-    state.imageryLayer.hue = .055 * (1 - t);
+    state.imageryLayer.saturation = .18 + .82 * t;
+    state.imageryLayer.brightness = .88 + .12 * t;
+    state.imageryLayer.contrast = 1.14 - .14 * t;
+    state.imageryLayer.gamma = .94 + .06 * t;
+    state.imageryLayer.hue = .042 * (1 - t);
   }
-  const alpha = .34 * (1 - t);
-  el.historicalWash.style.background = `rgba(109, 65, 24, ${alpha.toFixed(3)})`;
+  // Historical colour comes from the real imagery layer. No dark overlay or cast shadows are used.
+  el.historicalWash.style.background = "transparent";
   document.documentElement.style.setProperty("--accent", mixHex("#b88a47", "#d8b56b", t));
+}
+
+function addVillageMask() {
+  const inner = {
+    west: KRIPAN.lon - KRIPAN.villageHalfWidthDegrees,
+    east: KRIPAN.lon + KRIPAN.villageHalfWidthDegrees,
+    south: KRIPAN.lat - KRIPAN.villageHalfHeightDegrees,
+    north: KRIPAN.lat + KRIPAN.villageHalfHeightDegrees
+  };
+  const outer = {
+    west: KRIPAN.lon - .04,
+    east: KRIPAN.lon + .04,
+    south: KRIPAN.lat - .03,
+    north: KRIPAN.lat + .03
+  };
+  const maskColor = Cesium.Color.fromCssColorString("#243126").withAlpha(.90);
+  const rectangles = [
+    [outer.west, inner.north, outer.east, outer.north],
+    [outer.west, outer.south, outer.east, inner.south],
+    [outer.west, inner.south, inner.west, inner.north],
+    [inner.east, inner.south, outer.east, inner.north]
+  ];
+  for (const [west, south, east, north] of rectangles) {
+    state.viewer.entities.add({
+      rectangle: {
+        coordinates: Cesium.Rectangle.fromDegrees(west, south, east, north),
+        material: maskColor,
+        height: 0,
+        heightReference: Cesium.HeightReference.CLAMP_TO_GROUND,
+        shadows: Cesium.ShadowMode.DISABLED,
+        zIndex: 12
+      }
+    });
+  }
+  const border = [
+    inner.west, inner.south,
+    inner.east, inner.south,
+    inner.east, inner.north,
+    inner.west, inner.north,
+    inner.west, inner.south
+  ];
+  state.viewer.entities.add({
+    polyline: {
+      positions: Cesium.Cartesian3.fromDegreesArray(border),
+      width: 2.2,
+      clampToGround: true,
+      material: Cesium.Color.fromCssColorString("#e1c987").withAlpha(.72),
+      shadows: Cesium.ShadowMode.DISABLED
+    }
+  });
+}
+
+function refreshVillageLife(force = false, visibleHouses = null) {
+  const era = eraForYear(state.year);
+  updateProfessionHud(era);
+
+  if (!state.villageLifeEnabled || !state.peopleBillboards) {
+    clearVillagePeople();
+    el.peopleCount.textContent = "0";
+    el.villageHud?.classList.add("is-muted");
+    return;
+  }
+
+  el.villageHud?.classList.remove("is-muted");
+  const houses = visibleHouses || currentlyVisibleHouses();
+  const occupancyFactor = Math.max(.55, Math.min(1, houses.length / Math.max(1, state.houses.length * .72)));
+  const desiredCount = Math.max(6, Math.round(era.people * occupancyFactor));
+  const archivalPeople = activeArchivalWorkers(state.year);
+  const signature = `${era.id}:${desiredCount}:${state.roads.length}:${archivalPeople.map(p => p.id).join(",")}`;
+
+  if (force || state.peopleSignature !== signature) {
+    state.peopleSignature = signature;
+    buildVillagePeople(era, desiredCount, archivalPeople, houses);
+  }
+  el.peopleCount.textContent = String(state.people.length);
+  startPeopleAnimation();
+}
+
+function currentlyVisibleHouses() {
+  return state.houses.filter(house => {
+    const entity = state.entities.get(house.id);
+    return entity?.show && (entity.kripanVisual?.targetScale ?? 1) > 0;
+  });
+}
+
+function activeArchivalWorkers(year) {
+  return state.residents.filter(person => {
+    if (!person.profession) return false;
+    const born = person.birthYear == null || person.birthYear <= year;
+    const alive = person.deathYear == null || person.deathYear >= year;
+    const occupationStarted = person.occupationStartYear == null || person.occupationStartYear <= year;
+    const occupationActive = person.occupationEndYear == null || person.occupationEndYear >= year;
+    const inVillage = person.yearMovedIn == null || person.yearMovedIn <= year;
+    const notLeft = person.yearMovedOut == null || person.yearMovedOut >= year;
+    return born && alive && occupationStarted && occupationActive && inVillage && notLeft;
+  });
+}
+
+function buildVillagePeople(era, desiredCount, archivalPeople, visibleHouses) {
+  clearVillagePeople();
+  const routes = movementRoutes(visibleHouses);
+  if (!routes.length) return;
+
+  for (let index = 0; index < desiredCount; index++) {
+    const archival = archivalPeople[index] || null;
+    const tuple = archival
+      ? [archival.profession, archival.professionIcon || "•", archival.professionColor || "#58706b"]
+      : era.professions[Math.floor(seededUnit(`${state.simulationSeed}:${era.id}:profession:${index}`) * era.professions.length) % era.professions.length];
+    const profession = professionFromTuple(tuple);
+    const routeIndex = Math.floor(seededUnit(`${state.simulationSeed}:${era.id}:route:${index}`) * routes.length) % routes.length;
+    const route = routes[routeIndex];
+    const distance = seededUnit(`${state.simulationSeed}:${era.id}:distance:${index}`) * route.totalLength;
+    const direction = seededUnit(`${state.simulationSeed}:${era.id}:direction:${index}`) > .5 ? 1 : -1;
+    const speed = .45 + seededUnit(`${state.simulationSeed}:${era.id}:speed:${index}`) * .72;
+    const agent = {
+      id: `villager-${era.id}-${index}`,
+      name: archival?.name || profession.name,
+      profession,
+      isArchival: Boolean(archival),
+      route,
+      routeIndex,
+      distance,
+      direction,
+      speed,
+      phase: seededUnit(`${state.simulationSeed}:${era.id}:phase:${index}`) * Math.PI * 2,
+      pauseUntil: 0,
+      working: false,
+      frame: -1,
+      billboard: null
+    };
+    const point = pointAlongRoad(route, distance);
+    const billboard = state.peopleBillboards.add({
+      position: Cesium.Cartesian3.fromDegrees(point[0], point[1], .7),
+      image: personSprite(profession, 0),
+      width: 31,
+      height: 48,
+      verticalOrigin: Cesium.VerticalOrigin.BOTTOM,
+      horizontalOrigin: Cesium.HorizontalOrigin.CENTER,
+      heightReference: Cesium.HeightReference.RELATIVE_TO_GROUND,
+      disableDepthTestDistance: 650,
+      scaleByDistance: new Cesium.NearFarScalar(120, 1.32, 1450, .58),
+      translucencyByDistance: new Cesium.NearFarScalar(80, 1, 1600, .72),
+      id: { kripanAgent: agent }
+    });
+    agent.billboard = billboard;
+    state.people.push(agent);
+  }
+  el.peopleCount.textContent = String(state.people.length);
+}
+
+function movementRoutes(visibleHouses) {
+  if (state.roads.length) return state.roads;
+  const houses = visibleHouses.length > 1 ? visibleHouses : state.houses;
+  const routes = [];
+  for (let i = 0; i < houses.length - 1; i += 2) {
+    const coordinates = [
+      [houses[i].longitude, houses[i].latitude],
+      [houses[i + 1].longitude, houses[i + 1].latitude]
+    ];
+    const totalLength = haversineMeters(coordinates[0], coordinates[1]);
+    if (totalLength > 5) routes.push({ id: `fallback/${i}`, coordinates, cumulative: [0, totalLength], totalLength });
+  }
+  return routes;
+}
+
+function startPeopleAnimation() {
+  if (!state.villageLifeEnabled || !state.people.length || state.peopleAnimationFrame) return;
+  state.peopleLastTime = performance.now();
+  state.peopleAnimationFrame = requestAnimationFrame(animateVillagePeople);
+}
+
+function animateVillagePeople(now) {
+  if (!state.villageLifeEnabled || !state.people.length) {
+    state.peopleAnimationFrame = null;
+    return;
+  }
+  const dt = Math.min(.08, Math.max(.001, (now - state.peopleLastTime) / 1000));
+  state.peopleLastTime = now;
+
+  for (const agent of state.people) {
+    if (!agent.billboard) continue;
+    if (now < agent.pauseUntil) {
+      agent.working = true;
+    } else {
+      if (agent.working) {
+        agent.working = false;
+        if (seededUnit(`${agent.id}:${Math.floor(now / 5000)}`) > .72 && state.roads.length) {
+          agent.routeIndex = (agent.routeIndex + 1 + Math.floor(seededUnit(`${agent.id}:switch:${Math.floor(now / 5000)}`) * Math.max(1, state.roads.length - 1))) % state.roads.length;
+          agent.route = state.roads[agent.routeIndex];
+          agent.distance = agent.direction > 0 ? 0 : agent.route.totalLength;
+        }
+      }
+      agent.distance += agent.direction * agent.speed * dt;
+      if (agent.distance >= agent.route.totalLength || agent.distance <= 0) {
+        agent.distance = Math.max(0, Math.min(agent.route.totalLength, agent.distance));
+        agent.direction *= -1;
+        agent.pauseUntil = now + 1700 + seededUnit(`${agent.id}:pause:${Math.floor(now)}`) * 3600;
+        agent.working = true;
+      }
+    }
+
+    const point = pointAlongRoad(agent.route, agent.distance);
+    const cadence = agent.working ? 390 : 190;
+    const frame = agent.working ? 2 + (Math.floor((now + agent.phase * 100) / cadence) % 2) : Math.floor((now + agent.phase * 100) / cadence) % 2;
+    if (frame !== agent.frame) {
+      agent.frame = frame;
+      agent.billboard.image = personSprite(agent.profession, frame);
+    }
+    const bob = agent.working ? .04 * Math.sin(now / 180 + agent.phase) : .10 * Math.abs(Math.sin(now / 135 + agent.phase));
+    agent.billboard.position = Cesium.Cartesian3.fromDegrees(point[0], point[1], .72 + bob);
+    agent.billboard.rotation = agent.working ? .035 * Math.sin(now / 220 + agent.phase) : .018 * Math.sin(now / 170 + agent.phase);
+  }
+
+  state.viewer?.scene.requestRender();
+  state.peopleAnimationFrame = requestAnimationFrame(animateVillagePeople);
+}
+
+function clearVillagePeople() {
+  if (state.peopleBillboards) state.peopleBillboards.removeAll();
+  state.people = [];
+  state.peopleEraId = null;
+  if (state.peopleAnimationFrame) cancelAnimationFrame(state.peopleAnimationFrame);
+  state.peopleAnimationFrame = null;
+}
+
+function updateProfessionHud(era) {
+  el.eraTitle.textContent = era.title;
+  el.professionStrip.innerHTML = era.professions.slice(0, 6).map(([name, icon]) =>
+    `<span class="profession-chip"><span aria-hidden="true">${escapeHtml(icon)}</span>${escapeHtml(name)}</span>`
+  ).join("");
+}
+
+function eraForYear(year) {
+  return PROFESSION_ERAS.find(era => year >= era.min && year <= era.max) || PROFESSION_ERAS[0];
+}
+
+function professionFromTuple(tuple) {
+  return { name: String(tuple?.[0] || "Villager"), icon: String(tuple?.[1] || "•"), color: String(tuple?.[2] || "#65706a") };
+}
+
+function personSprite(profession, frame) {
+  const key = `${profession.name}:${profession.icon}:${profession.color}:${frame}`;
+  if (state.personSpriteCache.has(key)) return state.personSpriteCache.get(key);
+  const walking = frame < 2;
+  const alternate = frame % 2 === 1;
+  const leftLeg = walking ? (alternate ? "31,61 25,80" : "31,61 36,80") : "31,61 28,80";
+  const rightLeg = walking ? (alternate ? "35,61 40,80" : "35,61 29,80") : "35,61 38,80";
+  const armY = frame >= 2 ? (alternate ? 38 : 44) : (alternate ? 45 : 40);
+  const safeName = escapeHtml(profession.name);
+  const safeIcon = escapeHtml(profession.icon);
+  const safeColor = escapeHtml(profession.color);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="72" height="96" viewBox="0 0 72 96">
+    <title>${safeName}</title>
+    <circle cx="33" cy="19" r="9" fill="#e3bd96" stroke="#3c342c" stroke-width="2"/>
+    <path d="M24 31 Q33 26 42 31 L40 61 Q33 67 26 61 Z" fill="${safeColor}" stroke="#34332f" stroke-width="2"/>
+    <path d="M26 35 L17 ${armY}" stroke="#e3bd96" stroke-width="5" stroke-linecap="round"/>
+    <path d="M40 35 L50 ${frame >= 2 ? 34 : 44}" stroke="#e3bd96" stroke-width="5" stroke-linecap="round"/>
+    <polyline points="${leftLeg}" fill="none" stroke="#3f4244" stroke-width="5" stroke-linecap="round"/>
+    <polyline points="${rightLeg}" fill="none" stroke="#3f4244" stroke-width="5" stroke-linecap="round"/>
+    <circle cx="55" cy="25" r="13" fill="#f5e9c9" stroke="#4b463d" stroke-width="2"/>
+    <text x="55" y="31" text-anchor="middle" font-size="17" font-family="Apple Color Emoji,Segoe UI Emoji,sans-serif">${safeIcon}</text>
+  </svg>`;
+  const uri = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
+  state.personSpriteCache.set(key, uri);
+  return uri;
+}
+
+function pointAlongRoad(road, distance) {
+  if (!road?.coordinates?.length) return [KRIPAN.lon, KRIPAN.lat];
+  const d = Math.max(0, Math.min(road.totalLength, distance));
+  let segment = 1;
+  while (segment < road.cumulative.length && road.cumulative[segment] < d) segment++;
+  if (segment >= road.coordinates.length) return road.coordinates[road.coordinates.length - 1];
+  const startDistance = road.cumulative[segment - 1];
+  const endDistance = road.cumulative[segment];
+  const t = endDistance === startDistance ? 0 : (d - startDistance) / (endDistance - startDistance);
+  const a = road.coordinates[segment - 1];
+  const b = road.coordinates[segment];
+  return [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t];
 }
 
 function openHouse(houseId) {
@@ -437,7 +889,8 @@ function renderHousePanel() {
       const button = document.createElement("button");
       button.type = "button";
       button.className = `resident-card${state.selectedResidentId === person.id ? " is-active" : ""}`;
-      button.innerHTML = `<strong>${escapeHtml(person.name)}</strong><span>${lifeLabel(person)} · ${locationLabel(person)}</span>`;
+      const role = person.profession ? ` · ${escapeHtml(person.profession)}` : "";
+      button.innerHTML = `<strong>${escapeHtml(person.name)}</strong><span>${lifeLabel(person)}${role} · ${locationLabel(person)}</span>`;
       button.addEventListener("click", () => {
         state.selectedResidentId = person.id;
         renderHousePanel();
@@ -491,7 +944,8 @@ function personCard(person, focus = false) {
   const card = document.createElement("div");
   card.className = `person-card${focus ? " focus" : ""}${person.currentLocation?.status === "moved" ? " moved" : ""}`;
   const location = locationLabel(person);
-  card.innerHTML = `<strong>${escapeHtml(person.name)}</strong><span>${lifeLabel(person)}</span><span class="location-badge">${escapeHtml(location)}</span>`;
+  const profession = person.profession ? `<span>${escapeHtml(person.profession)}</span>` : "";
+  card.innerHTML = `<strong>${escapeHtml(person.name)}</strong><span>${lifeLabel(person)}</span>${profession}<span class="location-badge">${escapeHtml(location)}</span>`;
   return card;
 }
 
@@ -611,6 +1065,11 @@ function normalizeResidents(records) {
     yearMovedOut: nullableYear(r.yearMovedOut),
     parentIds: Array.isArray(r.parentIds) ? r.parentIds.map(String) : [],
     spouseId: r.spouseId ? String(r.spouseId) : null,
+    profession: r.profession ? String(r.profession) : null,
+    professionIcon: r.professionIcon ? String(r.professionIcon) : null,
+    professionColor: r.professionColor ? String(r.professionColor) : null,
+    occupationStartYear: nullableYear(r.occupationStartYear),
+    occupationEndYear: nullableYear(r.occupationEndYear),
     currentLocation: normalizeLocation(r.currentLocation),
     sources: Array.isArray(r.sources) ? r.sources : []
   }));
@@ -639,7 +1098,8 @@ function rerollSimulation() {
   localStorage.setItem(STORAGE.simulation, "true");
   updateSimulationUi();
   updateTimeline();
-  showToast("A new deterministic visual simulation was generated.");
+  refreshVillageLife(true);
+  showToast("A new deterministic village pattern was generated.");
 }
 
 function toggleTimelinePlayback() {
@@ -688,11 +1148,29 @@ function stopTimelinePlayback() {
 }
 
 function resetView(animated = true) {
-  stopOrbit();
-  const destination = Cesium.Cartesian3.fromDegrees(KRIPAN.lon, KRIPAN.lat, 1050);
-  const orientation = { heading: Cesium.Math.toRadians(10), pitch: Cesium.Math.toRadians(-48), roll: 0 };
-  if (animated) state.viewer.camera.flyTo({ destination, orientation, duration: 1.2 });
-  else state.viewer.camera.setView({ destination, orientation });
+  stopOrbit(false);
+  const center = Cesium.Cartesian3.fromDegrees(KRIPAN.lon, KRIPAN.lat, 0);
+  const offset = new Cesium.HeadingPitchRange(
+    Cesium.Math.toRadians(10),
+    Cesium.Math.toRadians(-43),
+    KRIPAN.cameraRangeMeters
+  );
+  state.orbitHeading = offset.heading;
+  if (animated) {
+    state.viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
+    state.viewer.camera.flyToBoundingSphere(new Cesium.BoundingSphere(center, 210), {
+      offset,
+      duration: 1.1,
+      complete: () => lockCameraToVillage(offset.heading, offset.pitch, offset.range)
+    });
+  } else {
+    lockCameraToVillage(offset.heading, offset.pitch, offset.range);
+  }
+}
+
+function lockCameraToVillage(heading, pitch, range) {
+  const center = Cesium.Cartesian3.fromDegrees(KRIPAN.lon, KRIPAN.lat, 0);
+  state.viewer.camera.lookAt(center, new Cesium.HeadingPitchRange(heading, pitch, range));
 }
 
 function toggleOrbit() {
@@ -705,19 +1183,21 @@ function startOrbit() {
   const center = Cesium.Cartesian3.fromDegrees(KRIPAN.lon, KRIPAN.lat, 0);
   const tick = () => {
     if (!state.orbiting) return;
-    state.orbitHeading += .0015;
-    state.viewer.camera.lookAt(center, new Cesium.HeadingPitchRange(state.orbitHeading, Cesium.Math.toRadians(-35), 900));
+    state.orbitHeading += .0017;
+    state.viewer.camera.lookAt(center, new Cesium.HeadingPitchRange(state.orbitHeading, Cesium.Math.toRadians(-38), KRIPAN.cameraRangeMeters));
     state.orbitFrame = requestAnimationFrame(tick);
   };
   tick();
 }
 
-function stopOrbit() {
+function stopOrbit(keepCurrentView = true) {
   state.orbiting = false;
   el.orbitButton?.classList.remove("is-active");
   if (state.orbitFrame) cancelAnimationFrame(state.orbitFrame);
   state.orbitFrame = null;
-  if (state.viewer) state.viewer.camera.lookAtTransform(Cesium.Matrix4.IDENTITY);
+  if (state.viewer && keepCurrentView) {
+    lockCameraToVillage(state.orbitHeading || Cesium.Math.toRadians(10), Cesium.Math.toRadians(-38), KRIPAN.cameraRangeMeters);
+  }
 }
 
 function setStatus(title, detail, kind) {
@@ -762,6 +1242,30 @@ function colorForYear(year, alpha = 1) {
 function simulationColorForYear(year) {
   const color = colorForYear(year, 1);
   return Cesium.Color.lerp(color, Cesium.Color.fromCssColorString("#8ba6a0"), .28, new Cesium.Color());
+}
+
+function gameHouseColor(house, year) {
+  const oldPalette = ["#9b6b45", "#a37850", "#8c6b52", "#a26f5b", "#88725c", "#9a8158"];
+  const modernPalette = ["#d6b574", "#c99573", "#b7b079", "#d0a36c", "#b9a58b", "#d8c18f"];
+  const index = hashString(house.id) % oldPalette.length;
+  const t = smoothstep(((year || 2024) - 1500) / 524);
+  return Cesium.Color.fromCssColorString(mixHex(oldPalette[index], modernPalette[index], t));
+}
+
+function seededUnit(value) {
+  return (hashString(String(value)) + .5) / 4294967296;
+}
+
+function haversineMeters(a, b) {
+  const toRad = Math.PI / 180;
+  const lat1 = a[1] * toRad;
+  const lat2 = b[1] * toRad;
+  const dLat = (b[1] - a[1]) * toRad;
+  const dLon = (b[0] - a[0]) * toRad;
+  const sinLat = Math.sin(dLat / 2);
+  const sinLon = Math.sin(dLon / 2);
+  const h = sinLat * sinLat + Math.cos(lat1) * Math.cos(lat2) * sinLon * sinLon;
+  return 6371008.8 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(Math.max(0, 1 - h)));
 }
 
 function simulatedYearForHouse(id, seed) {

@@ -1,110 +1,115 @@
-# Kripan — Houses & Families Through Time
+# Kripan Village Time Machine
 
-A static, deployable CesiumJS web app centered on the real village of Kripan, Álava, Spain (`42.5918, -2.5155`). It retrieves current building footprints live from OpenStreetMap through the Overpass API, extrudes them on a real 3D globe, and filters verified buildings and residents through a 1500–2024 timeline.
+A static CesiumJS web app centered on the real village of Kripan, Álava, Spain (`42.5918, -2.5155`). It loads current OpenStreetMap buildings and local paths through Overpass, extrudes the real footprints in 3D, and presents the village as a small animated historical game board.
 
-## What is implemented
+## New game-style features
 
-- CesiumJS real 3D camera, tilt, orbit and geospatial coordinates.
-- Cesium World Terrain and aerial imagery when a Cesium ion token is supplied.
-- Real OpenStreetMap building footprints loaded through Overpass at runtime.
-- 3D polygon extrusion using OSM building levels/height when available.
-- Timeline filtering by `yearBuilt` and `yearDemolished`.
-- Animated backward playback from 2024 to 1500. Buildings shrink and fade out when the selected year predates their appearance.
-- Optional deterministic simulation for undated OSM footprints. It assigns pseudo-random visual appearance years, can generate a new pattern, and is clearly separated from evidence-based dates.
-- Sepia/desaturated early-century rendering that transitions to modern full-color imagery.
-- House details, residents at the selected year, and a family relationship view.
-- Browser-based curator overrides for house names, streets, years and source references.
-- JSON import/export for archival datasets.
-- Responsive desktop/mobile interface.
+- The camera remains centered on Kripan instead of allowing visitors to roam across an open globe.
+- A soft mask hides the surrounding map and leaves the village as the visible game board.
+- Miniature animated villagers walk along real current OpenStreetMap routes.
+- Villagers periodically stop and perform a simple working animation.
+- Profession sets change by era as the timeline moves between 1500 and 2024.
+- Imported residents can drive named workers when their records include a profession and occupation years.
+- Houses still shrink and disappear when the selected year predates their verified or simulated construction year.
+- Terrain lighting, building shadows, the dark historical overlay, fog and Cesium shadows are disabled.
+- A compact village-life HUD shows the selected era, number of visible miniature people and representative professions.
+
+## Important historical limitation
+
+The animated professions are illustrative era-based roles. They are not claims that a named person performed that occupation in Kripan.
+
+Current OpenStreetMap roads are used as animation paths. They must not be interpreted as a verified reconstruction of the street network in earlier centuries.
+
+A miniature becomes archival rather than illustrative only when an imported resident record contains a supported `profession`, relevant occupation dates, and source citations. Building chronology remains separate and should be supported by cadastral, municipal, notarial, architectural or equivalent evidence.
 
 ## Run locally
 
-This app must be served over HTTP because browsers block local-file fetches.
+The app must be served over HTTP:
 
 ```bash
-cd kripan-history-map
+cd kripan-village-game
 python3 -m http.server 8080
 ```
 
 Open `http://localhost:8080`.
 
-## Deploy
+## Deploy to GitHub Pages
 
-The folder is static and can be deployed directly to GitHub Pages, Netlify, Cloudflare Pages, an Apache/Nginx directory, or a municipality's existing web server. No build step is required.
+Upload the files inside this folder directly to the root of your GitHub repository:
 
-## Enable real terrain and aerial imagery
-
-1. Create a Cesium ion account.
-2. Create/copy an access token.
-3. Open **Data & map** in the app.
-4. Paste the token and select **Save & reload**.
-
-Without a token, the app still uses a real OpenStreetMap street layer, but the globe uses an ellipsoid rather than Cesium World Terrain and aerial imagery is disabled.
-
-## Historical animation mode
-
-Press **Play backwards** in the timeline to animate the village from 2024 back to 1500. Evidence-dated houses disappear according to their recorded `yearBuilt`. When **Animate estimated history** is enabled, undated current footprints receive stable pseudo-random simulation years and disappear in a repeatable pattern.
-
-Use **Data & map → Generate a new pattern** to create another simulation. The generated years are stored only as a browser simulation seed and are deliberately excluded from exported archival datasets. They are visual placeholders, not claims about Kripan's actual construction history. Turning off the simulation restores the evidence-only behavior.
-
-## Historical data import
-
-Use `data/import-template.json` as the schema. OSM building IDs are shown in the selected house title when a house has no name; use the `way/123456` value as the house `id`.
-
-### House record
-
-```json
-{
-  "id": "way/123456",
-  "latitude": 42.5918,
-  "longitude": -2.5155,
-  "name": "Casa ...",
-  "yearBuilt": 1724,
-  "yearDemolished": null,
-  "streetName": "...",
-  "sourceRef": "Archive/cadastre/notarial citation",
-  "yearConfidence": "verified"
-}
+```text
+index.html
+app.js
+styles.css
+README.md
+data/
 ```
 
-### Resident record
+Then use:
+
+```text
+Settings → Pages → Deploy from a branch → main → /(root)
+```
+
+No build step is required.
+
+## Update an existing GitHub deployment
+
+Replace these files in the repository root:
+
+```text
+index.html
+app.js
+styles.css
+README.md
+```
+
+Also upload the updated `data/import-template.json` when you want the occupation fields in the example schema.
+
+## Cesium token
+
+A Cesium ion token enables Cesium World Terrain and aerial imagery. Open **Data & map**, paste the token and reload. Without a token, the app uses the real OpenStreetMap street layer over an ellipsoid.
+
+## Timeline simulation
+
+**Play backwards** animates 2024 to 1500. Verified houses use their recorded `yearBuilt`. Undated current OSM footprints can use stable pseudo-random appearance years when **Animate estimated history** is enabled.
+
+Those simulated years are excluded from exported archival datasets. Use **Data & map → Generate a new pattern** to change both the building sequence and the illustrative village-life arrangement.
+
+## Occupation-enabled resident record
+
+The standard resident fields remain supported. These optional fields connect a verified person to a miniature worker:
 
 ```json
 {
   "id": "person-0001",
-  "name": "Full transcribed name",
+  "name": "Transcribed full name",
   "birthYear": 1760,
   "deathYear": 1821,
   "houseId": "way/123456",
   "yearMovedIn": 1783,
   "yearMovedOut": null,
-  "parentIds": ["person-0002", "person-0003"],
-  "spouseId": "person-0004",
+  "parentIds": [],
+  "spouseId": null,
+  "profession": "Vintner",
+  "professionIcon": "🍇",
+  "professionColor": "#744c64",
+  "occupationStartYear": 1780,
+  "occupationEndYear": 1815,
   "currentLocation": {
     "status": "deceased",
     "destination": null
   },
-  "sources": [{
-    "type": "baptism",
-    "repository": "Historical Diocesan Archive of Vitoria-Gasteiz",
-    "parish": "Kripan",
-    "book": "...",
-    "folio": "...",
-    "recordDate": "1760-01-01"
-  }]
+  "sources": []
 }
 ```
 
-`currentLocation.status` accepts `village`, `moved`, or `deceased`. For `moved`, add a destination.
-
-## Evidence warning
-
-Parish baptism, marriage and death registers can support resident identities, kinship, life dates and sometimes residence statements. They normally do **not**, by themselves, establish a physical building's construction year. Construction chronology should be separately supported by cadastral, municipal, notarial, architectural, tax, building-survey or equivalent primary evidence. The app keeps those provenance channels separate.
+`professionIcon` and `professionColor` are visual fields. The source citation should support the profession itself and, where possible, its date range.
 
 ## Production recommendations
 
-- Proxy/cache Overpass queries server-side for public traffic rather than sending every visitor directly to community endpoints.
-- Add authenticated curator roles and a database instead of relying on browser local storage.
-- Store archival image permissions and citations for every transcription.
-- Add uncertainty ranges (`yearBuiltMin`, `yearBuiltMax`) where evidence is approximate.
-- Review OpenStreetMap attribution and tile/Overpass usage policies before launch.
+- Cache or proxy Overpass requests for public traffic instead of having every visitor query community endpoints directly.
+- Host curated historical data in a database with authenticated editor roles rather than relying on browser local storage.
+- Replace illustrative roles with archival occupation records gradually.
+- Create historically reconstructed routes only when supported by maps, cadastral plans or other primary evidence.
+- Review OpenStreetMap attribution and tile/Overpass usage requirements before municipal publication.

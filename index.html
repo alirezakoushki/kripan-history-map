@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <meta name="theme-color" content="#171713" />
-  <title>Kripan — Houses & Families Through Time</title>
+  <title>Kripan Village Time Machine</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/cesium@1.127.0/Build/Cesium/Widgets/widgets.css" />
   <link rel="stylesheet" href="./styles.css" />
 </head>
@@ -18,7 +18,7 @@
         <span class="brand-mark" aria-hidden="true">K</span>
         <div>
           <h1>Kripan</h1>
-          <p>Houses & families through time</p>
+          <p>Village time machine</p>
         </div>
       </div>
       <div class="topbar-actions">
@@ -31,9 +31,18 @@
     <section class="status-card glass" aria-live="polite">
       <span id="loadingDot" class="status-dot is-loading"></span>
       <div>
-        <strong id="statusTitle">Loading Kripan building footprints…</strong>
-        <span id="statusDetail">Querying OpenStreetMap through Overpass</span>
+        <strong id="statusTitle">Loading the Kripan game board…</strong>
+        <span id="statusDetail">Retrieving real buildings and walking routes from OpenStreetMap</span>
       </div>
+    </section>
+
+    <section id="villageHud" class="village-hud glass" aria-live="polite">
+      <div class="village-hud-heading">
+        <div><span class="eyebrow">Village life</span><strong id="eraTitle">Contemporary Kripan</strong></div>
+        <span class="people-pill"><strong id="peopleCount">0</strong> villagers</span>
+      </div>
+      <div id="professionStrip" class="profession-strip" aria-label="Illustrative professions"></div>
+      <p id="mapBoundaryNote">Game camera locked to Kripan · people and unverified dates are illustrative until archival records are imported.</p>
     </section>
 
     <aside id="detailsPanel" class="details-panel glass" aria-label="House details" aria-hidden="true">
@@ -90,8 +99,9 @@
         <div class="timeline-stats">
           <div class="timeline-control-row">
             <button id="playTimelineButton" class="button timeline-play-button" type="button">▶ Play backwards</button>
-            <span><strong id="visibleHouseCount">0</strong> visible</span>
+            <span><strong id="visibleHouseCount">0</strong> houses</span>
           </div>
+          <label class="toggle-row"><input id="villageLifeToggle" type="checkbox" checked /><span>Miniature village life</span></label>
           <label class="toggle-row" title="Assigns stable simulated appearance years to undated OSM footprints. This is not archival evidence."><input id="simulationToggle" type="checkbox" checked /><span>Animate estimated history</span></label>
           <label class="toggle-row"><input id="showUndatedToggle" type="checkbox" checked /><span>Show undated current buildings</span></label>
         </div>
@@ -127,6 +137,11 @@
             <button id="aerialButton" type="button" class="segment is-active">Aerial + labels</button>
             <button id="streetButton" type="button" class="segment">Street map</button>
           </div>
+        </section>
+
+        <section class="dialog-section game-note">
+          <h3>Miniature village simulation</h3>
+          <p>Animated people follow current OpenStreetMap village routes. Their era-based professions are illustrative unless a resident record includes a verified <code>profession</code> and occupation years. The camera is locked to the Kripan board, and terrain/building shadows are disabled.</p>
         </section>
 
         <section class="dialog-section">

@@ -27,8 +27,16 @@
       "houseId": "way/REPLACE_WITH_OSM_WAY_ID",
       "yearMovedIn": 1783,
       "yearMovedOut": null,
-      "parentIds": ["person-0002", "person-0003"],
+      "parentIds": [
+        "person-0002",
+        "person-0003"
+      ],
       "spouseId": "person-0004",
+      "profession": "Vintner",
+      "professionIcon": "🍇",
+      "professionColor": "#744c64",
+      "occupationStartYear": 1780,
+      "occupationEndYear": 1815,
       "currentLocation": {
         "status": "deceased",
         "destination": null
